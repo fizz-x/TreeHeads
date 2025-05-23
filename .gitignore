@@ -1,1 +1,5 @@
 data/
+processed/
+#stacked_multiband.tif
+# Ignore all .tif files
+*.tif
