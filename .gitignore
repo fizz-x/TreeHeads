@@ -4,3 +4,4 @@ processed/
 # Ignore all .tif files
 *.tif
 10_Data/
+.DS_Store
