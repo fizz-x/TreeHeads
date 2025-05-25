@@ -5,3 +5,6 @@ processed/
 *.tif
 10_Data/
 .DS_Store
+.ipynb_checkpoints/
+*.pyc
+__pycache__/
