@@ -1,5 +1,7 @@
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
+import os
 import rasterio
 from utils.basics import load_rasters
 
@@ -115,3 +117,44 @@ def plot_ALS_histogram(als_path):
     plt.tight_layout()
     plt.show()
 
+def plot_two_density_and_percentiles(tif_path1, tif_path2, percentile_values=[0, 5, 10, 50, 75, 90, 95, 98, 99, 100]):
+    """
+    Plot density distributions of pixel values in two TIFF files and print specified percentiles for both.
+    
+    Args:
+        tif_path1 (str): Path to the first TIFF file.
+        tif_path2 (str): Path to the second TIFF file.
+        percentile_values (list): List of percentiles to calculate and display.
+    """
+    def load_data(path):
+        with rasterio.open(path) as src:
+            data = src.read(1).astype(np.float32)
+        return data[~np.isnan(data)]
+    
+    data1 = load_data(tif_path1)
+    data2 = load_data(tif_path2)
+    
+    perc1 = np.percentile(data1, percentile_values)
+    perc2 = np.percentile(data2, percentile_values)
+    
+    plt.figure(figsize=(10, 6))
+    plt.hist(data1, bins=128, density=True, alpha=0.6, color='r', label=os.path.basename(tif_path1))
+    plt.hist(data2, bins=128, density=True, alpha=0.6, color='g', label=os.path.basename(tif_path2))
+    
+    plt.title("Density Plot Comparison before and after resampling")
+    plt.xlabel("Canopy Height (m)")
+    plt.ylabel("Density")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+    
+
+    # Print percentiles as a table
+    table = pd.DataFrame({
+        os.path.basename(tif_path1): np.round(perc1, 2),
+        os.path.basename(tif_path2): np.round(perc2, 2),
+        "delta": np.round(perc2 - perc1, 2)
+    }, index=pd.Index([f"{p}th" for p in percentile_values], name="Percentile"))
+    print("\nPercentiles Table:")
+    #pd.set_option('display.float_format', '{:.2f}'.format)  # Set float format for better readability
+    print(table)
