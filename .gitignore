@@ -1,5 +1,6 @@
 data/
 processed/
+training/lightning_logs/
 #stacked_multiband.tif
 # Ignore all .tif files
 *.tif
