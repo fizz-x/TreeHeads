@@ -7,7 +7,8 @@ from utils.basics import load_rasters
 
 def normalize_S2(s2, band_idxs=(10, 3, 0)):
     """
-    Normalize Sentinel-2 data for visualization.
+    Normalize Sentinel-2 data for visualization; this was a first draft for quick visualization.
+    Better to use normalized S2 data from the preprocessing pipeline.
 
     Parameters:
     - s2: numpy array of S2 data (bands, height, width)
@@ -28,7 +29,7 @@ def normalize_S2(s2, band_idxs=(10, 3, 0)):
     
     return rgb
 
-def plot_full_image(s2, als, band_idxs=(10, 3, 0)):
+def plot_full_image(s2, als, band_idxs=(10, 3, 0),norm_rgb=False):
     """
     Plot the full image of S2 data (RGB) and ALS.
 
@@ -37,8 +38,10 @@ def plot_full_image(s2, als, band_idxs=(10, 3, 0)):
     - als_mean: numpy array of ALS data (height, width)
     - band_idxs: tuple of band indices for RGB visualization (default: (10, 3, 0))
     """
-
-    rgb = normalize_S2(s2, band_idxs)
+    if norm_rgb:
+        rgb = normalize_S2(s2, band_idxs)
+    else:
+        rgb = s2[band_idxs, :, :].transpose(1, 2, 0)
 
     fig, axs = plt.subplots(1, 2, figsize=(15, 7))
 
@@ -75,7 +78,6 @@ def plot_overlay(s2, als, band_idxs=(10, 3, 0), alpha=0.5,norm_rgb=False):
         rgb = normalize_S2(s2, band_idxs)
     else:
         rgb = s2[band_idxs, :, :].transpose(1, 2, 0)
-            # Create RGB image from specified bands
 
     als[als == 0] = np.nan
 
@@ -161,3 +163,50 @@ def plot_two_density_and_percentiles(tif_path1, tif_path2, percentile_values=[0,
     print("\nPercentiles Table:")
     #pd.set_option('display.float_format', '{:.2f}'.format)  # Set float format for better readability
     print(table)
+
+def plot_s2_histograms_and_percentiles(s2_data, num_bands=13,band_names=None):
+    """
+    Plot histograms for each band in the S2 data and print nanmax, nanmin, nanmean, nanmedian per band.
+
+    Parameters:
+    - s2_data: numpy array of S2 data (bands, height, width)
+    - num_bands: number of bands in the S2 data (default: 13)
+    """
+    plt.figure(figsize=(15, 10))
+
+    percentiles = [0, 0.1, 25, 50, 75, 95, 99.9, 100]
+    table = []
+    
+    for i in range(num_bands):
+
+        band_data = s2_data[i].flatten()
+        band_data_nonan = band_data[~np.isnan(band_data)]
+        band_data = s2_data[i].flatten()
+        band_data_nonan = band_data[~np.isnan(band_data)]
+        pct_values = np.percentile(band_data_nonan, percentiles)
+        table.append(pct_values)
+        # plots 
+        plt.subplot(4, 4, i + 1)
+        plt.hist(band_data_nonan, bins=100, color='blue', alpha=0.7)
+        plt.title(f'B{i + 1}_{band_names[i]}' if band_names else f'na')
+        plt.xlabel('Pixel Value')
+        plt.ylabel('Frequency')
+        plt.grid(True)
+
+    df = pd.DataFrame(
+        np.array(table).T,
+        index=[f"P{p}" for p in percentiles],
+        columns=[f"B{i+1}_{band_names[i]}" if band_names else f'na' for i in range(num_bands)]
+    )
+    # append one row with nan ratio per band
+    nan_counts = [np.sum(np.isnan(s2_data[i])) for i in range(num_bands)]
+    total_counts = [s2_data[i].size for i in range(num_bands)]
+    nan_ratios = [nan_counts[i] / total_counts[i] if total_counts[i] > 0 else np.nan for i in range(num_bands)]
+    df.loc['NaN Ratio'] = nan_ratios
+    # append one row with band names
+
+    #print(df.round(2))
+    display(df.round(2))
+    plt.suptitle('S2 Band Histograms', fontsize=16)
+    plt.tight_layout()
+    plt.show()

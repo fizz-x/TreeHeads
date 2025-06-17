@@ -18,6 +18,7 @@ def load_rasters(S2_stack_path, ALS_Path, verbose=True):
         s2np = s2_src.read().astype(np.float32)  # shape: (bands, height, width)
         s2res_x, s2res_y = s2_src.res  # (pixel width, pixel height in coordinate units)
         s2crs = s2_src.crs
+        band_names = s2_src.descriptions  # List of band names
     
     with rasterio.open(ALS_Path) as src1:
         alsnp = src1.read(1).astype(np.float32)  # shape: (height, width)
@@ -29,10 +30,11 @@ def load_rasters(S2_stack_path, ALS_Path, verbose=True):
 
         print(f"{os.path.basename(S2_stack_path)}:")
         print(f"  CRS: {s2crs}")
-        print(f"  Ground Sampling Distance (GSD): {s2res_x:.2f} x {s2res_y:.2f} {s2crs.linear_units}\n")
+        print(f"  Ground Sampling Distance (GSD): {s2res_x:.2f} x {s2res_y:.2f} {s2crs.linear_units}")
+        print(f"  Band names: {band_names}\n")
 
         print(f"{os.path.basename(ALS_Path)}:")
         print(f"  CRS: {acrs}")
         print(f"  Ground Sampling Distance (GSD): {ares_x:.2f} x {ares_y:.2f} {acrs.linear_units}\n")
 
-    return s2np, alsnp, s2crs.description 
+    return s2np, alsnp, band_names
