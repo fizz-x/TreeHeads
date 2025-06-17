@@ -35,4 +35,4 @@ def load_rasters(S2_stack_path, ALS_Path, verbose=True):
         print(f"  CRS: {acrs}")
         print(f"  Ground Sampling Distance (GSD): {ares_x:.2f} x {ares_y:.2f} {acrs.linear_units}\n")
 
-    return s2np, alsnp 
+    return s2np, alsnp, s2crs.description 
