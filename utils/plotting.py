@@ -61,7 +61,7 @@ def plot_full_image(s2, als, band_idxs=(10, 3, 0)):
     plt.show()
 
 
-def plot_overlay(s2, als, band_idxs=(10, 3, 0), alpha=0.5):
+def plot_overlay(s2, als, band_idxs=(10, 3, 0), alpha=0.5,norm_rgb=False):
     """
     Plot an overlay of the RGB image and ALS data.
 
@@ -71,8 +71,11 @@ def plot_overlay(s2, als, band_idxs=(10, 3, 0), alpha=0.5):
     - band_idxs: tuple of band indices for RGB visualization (default: (10, 3, 0))
     - alpha: transparency level for the ALS overlay (default: 0.5)
     """
-
-    rgb = normalize_S2(s2, band_idxs)
+    if norm_rgb:
+        rgb = normalize_S2(s2, band_idxs)
+    else:
+        rgb = s2[band_idxs, :, :].transpose(1, 2, 0)
+            # Create RGB image from specified bands
 
     als[als == 0] = np.nan
 
