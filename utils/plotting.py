@@ -64,7 +64,7 @@ def plot_full_image(s2, als, band_idxs=(10, 3, 0),norm_rgb=False):
     plt.show()
 
 
-def plot_overlay(s2, als, band_idxs=(10, 3, 0), alpha=0.5,norm_rgb=False):
+def plot_overlay(s2, als, band_idxs=(10, 3, 0), alpha=0.5,norm_rgb=False, type = "CHM"):
     """
     Plot an overlay of the RGB image and ALS data.
 
@@ -73,6 +73,8 @@ def plot_overlay(s2, als, band_idxs=(10, 3, 0), alpha=0.5,norm_rgb=False):
     - als: numpy array of ALS data (height, width)
     - band_idxs: tuple of band indices for RGB visualization (default: (10, 3, 0))
     - alpha: transparency level for the ALS overlay (default: 0.5)
+    - norm_rgb: boolean to normalize RGB image (default: False)
+    - type: type of data to overlay, e.g., "CHM" for ALS CHM (default: "CHM") or FMASK for binary forest mask 
     """
     if norm_rgb:
         rgb = normalize_S2(s2, band_idxs)
@@ -85,9 +87,13 @@ def plot_overlay(s2, als, band_idxs=(10, 3, 0), alpha=0.5,norm_rgb=False):
     plt.figure(figsize=(10, 10))
     plt.imshow(rgb, interpolation='none')
     plt.imshow(als, cmap='Reds', alpha=alpha, interpolation='none')  # Overlay ALS data
-    plt.title("RGB Image with CHM Overlay")
     plt.axis("off")
-    plt.colorbar(label="Canopy Height (m)", fraction=0.02,pad=0.04,)
+    if type == "CHM":
+        plt.title("RGB Image with CHM Overlay")
+        plt.colorbar(label="Canopy Height (m)", fraction=0.02,pad=0.04,)
+    elif type == "FMASK":
+        plt.title("RGB Image with Forest Mask Overlay")
+        plt.colorbar(label="Forest Mask (1 = Forest)", fraction=0.02, pad=0.04) 
     plt.tight_layout
     plt.show()
 
@@ -173,6 +179,7 @@ def plot_s2_histograms_and_percentiles(s2_data, num_bands=13,band_names=None):
     - num_bands: number of bands in the S2 data (default: 13)
     """
     plt.figure(figsize=(15, 10))
+    #plt.figure()
 
     percentiles = [0, 0.1, 25, 50, 75, 95, 99.9, 100]
     table = []

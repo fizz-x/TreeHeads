@@ -38,3 +38,43 @@ def load_rasters(S2_stack_path, ALS_Path, verbose=True):
         print(f"  Ground Sampling Distance (GSD): {ares_x:.2f} x {ares_y:.2f} {acrs.linear_units}\n")
 
     return s2np, alsnp, band_names
+
+def read_multiband_tif_as_stack(tif_path, bands=13, channels=5):
+    """
+    Reads a stacked multiband TIFF and returns a numpy array of shape (bands, channels, h, w).
+
+    Args:
+        tif_path (str): Path to the stacked multiband TIFF.
+        bands (int): Number of bands.
+        channels (int): Number of channels per band.
+
+    Returns:
+        np.ndarray: Array of shape (bands, channels, h, w).
+    """
+    with rasterio.open(tif_path) as src:
+        h, w = src.height, src.width
+        arr = src.read()  # shape: (bands*channels, h, w)
+        arr = arr.reshape((bands, channels, h, w))
+    return arr
+
+def read_tif_as_array(tif_path, verbose=True):
+    """
+    Reads a single-band TIFF and returns a numpy array.
+
+    Args:
+        tif_path (str): Path to the TIFF file.
+
+    Returns:
+        np.ndarray: Array of shape (h, w).
+    """
+    with rasterio.open(tif_path) as src:
+        arr = src.read(1)  # Read the first band
+        res_x, res_y = src.res  # (pixel width, pixel height in coordinate units)
+        crs = src.crs
+        dsc = src.descriptions  # List of band names
+
+        if verbose:
+            print(f"✅ Loaded {os.path.basename(tif_path)}: shape={arr.shape}, CRS={crs}, GSD={res_x:.2f} x {res_y:.2f} {crs.linear_units}")
+            print(f"Band names: {dsc}")
+
+    return arr.astype(np.float32)  # Ensure float32 type for consistency
