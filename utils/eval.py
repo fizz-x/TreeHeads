@@ -160,9 +160,7 @@ def plot_heatmap(y_true, y_pred, title="Heatmap of True vs Predicted"):
     plt.grid(True)
     plt.show()
 
-    return 1
-
-def plot2(y_val_true, y_val_pred, y_test_true, y_test_pred, title="Heatmap of Ground-Truth vs Predicted Canopy Height\n"):
+def plot_compact_heatmap_val_test(y_val_true, y_val_pred, y_test_true, y_test_pred, title="Heatmap of Ground-Truth vs Predicted Canopy Height\n"):
     """
     Plot two heatmaps of true vs predicted values: left for validation, right for test set.
 
@@ -202,19 +200,6 @@ def plot2(y_val_true, y_val_pred, y_test_true, y_test_pred, title="Heatmap of Gr
     #plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.show()
 
-    return 1
-
-def simpletest(pred):
-    """
-    Simple test function to check if the prediction is a numpy array.
-    
-    Parameters:
-    - pred: np.ndarray, predicted values
-    
-    Returns:
-    - bool: True if pred is a numpy array, False otherwise
-    """
-    return isinstance(pred, np.ndarray) and pred.ndim == 2 and pred.shape[0] > 0 and pred.shape[1] > 0
 
 def plot_eval_report(train_losses, val_losses, model, val_loader,test_loader, json_path=None, config=None):
     """
@@ -227,6 +212,9 @@ def plot_eval_report(train_losses, val_losses, model, val_loader,test_loader, js
     - y_pred: np.ndarray, predicted values
     - json_path: str, path to normalization parameters JSON file (optional)
     """
+    import utils.eval as eval
+    from utils.eval import plot_heatmap, plot_compact_heatmap_val_test, denorm_model_json, plot_real_pred_delta
+    
     plot_val_loss(train_losses, val_losses)
 
     print("VALIDATION METRICS")
@@ -234,7 +222,7 @@ def plot_eval_report(train_losses, val_losses, model, val_loader,test_loader, js
     print("TEST METRICS")
     pred_test, target_test = denorm_model_json(model, test_loader, json_path, config=config)
     #a = simpletest(predictions)
-    #check = plot2(targets, predictions, target_test, pred_test, title="Heatmap of Ground-Truth vs Predicted Canopy Height\n")
+    plot_compact_heatmap_val_test(targets, predictions, target_test, pred_test, title="Heatmap of Ground-Truth vs Predicted Canopy Height\n")
     #plot_heatmap(targets, predictions, title="Val-Set: \nHeatmap of True vs Predicted Canopy Height")
     #plot_heatmap(target_test, pred_test, title="Test-Set: \nHeatmap of True vs Predicted Canopy Height")
     #plot_compact_heatmap_val_test(targets, predictions, target_test, pred_test)
