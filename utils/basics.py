@@ -3,7 +3,7 @@ import numpy as np
 import rasterio
 
 # load the stacked S2 and merged ALS rasters
-def load_rasters(S2_stack_path, ALS_Path, verbose=True):
+def load_rasters(S2_stack_path, ALS_Path, verbose=True, s2_channel="Q50"):
     """
     Load Sentinel-2 stacked raster and ALS raster, print their properties.
     Args:
@@ -15,10 +15,17 @@ def load_rasters(S2_stack_path, ALS_Path, verbose=True):
     """
     
     with rasterio.open(S2_stack_path) as s2_src:
-        s2np = s2_src.read().astype(np.float32)  # shape: (bands, height, width)
+        band_names = s2_src.descriptions  # List of band names
+        if s2_channel:
+            selected_band_indices = [i + 1 for i, name in enumerate(band_names) if s2_channel in (name or "")]
+            if not selected_band_indices:
+                raise ValueError(f"No bands found containing '{s2_channel}' in their name.")
+            s2np = s2_src.read(selected_band_indices).astype(np.float32)  # shape: (selected_bands, height, width)
+            band_names = tuple(band_names[i - 1] for i in selected_band_indices)
+        else:
+            s2np = s2_src.read().astype(np.float32)  # shape: (bands, height, width)
         s2res_x, s2res_y = s2_src.res  # (pixel width, pixel height in coordinate units)
         s2crs = s2_src.crs
-        band_names = s2_src.descriptions  # List of band names
     
     with rasterio.open(ALS_Path) as src1:
         alsnp = src1.read(1).astype(np.float32)  # shape: (height, width)
