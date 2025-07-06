@@ -227,14 +227,14 @@ def plot_eval_report(train_losses, val_losses, model, val_loader,test_loader, js
     - y_pred: np.ndarray, predicted values
     - json_path: str, path to normalization parameters JSON file (optional)
     """
-    #plot_val_loss(train_losses, val_losses)
+    plot_val_loss(train_losses, val_losses)
 
     print("VALIDATION METRICS")
     predictions, targets = denorm_model_json(model, val_loader, json_path, config=config)
     print("TEST METRICS")
     pred_test, target_test = denorm_model_json(model, test_loader, json_path, config=config)
-    a = simpletest(predictions)
-    check = plot2(targets, predictions, target_test, pred_test, title="Heatmap of Ground-Truth vs Predicted Canopy Height\n")
+    #a = simpletest(predictions)
+    #check = plot2(targets, predictions, target_test, pred_test, title="Heatmap of Ground-Truth vs Predicted Canopy Height\n")
     #plot_heatmap(targets, predictions, title="Val-Set: \nHeatmap of True vs Predicted Canopy Height")
     #plot_heatmap(target_test, pred_test, title="Test-Set: \nHeatmap of True vs Predicted Canopy Height")
     #plot_compact_heatmap_val_test(targets, predictions, target_test, pred_test)
