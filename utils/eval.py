@@ -50,13 +50,18 @@ def denorm_model_json(model, test_loader, json_path, config=None):
     model.eval()
     all_preds, all_targets = [], []
     with torch.no_grad():
-        for inputs, targets in test_loader:
-            inputs, targets = inputs.to(config['device']), targets.to(config['device'])
-            #inputs, targets = inputs.to('cpu'), targets.to('cpu')
-
+        for inputs, targets, mask in test_loader:
+            inputs, targets, mask = inputs.to(config['device']), targets.to(config['device']), mask.to(config['device'])
             outputs = model(inputs)
-            all_preds.append(outputs.cpu().numpy())
-            all_targets.append(targets.cpu().numpy())
+
+            # Ensure mask is boolean and has the same shape as outputs/targets
+            mask = mask.bool()
+            if mask.shape != outputs.shape:
+                mask = mask.view_as(outputs)
+            masked_outputs = outputs[mask]
+            masked_targets = targets[mask]
+            all_preds.append(masked_outputs.cpu().numpy())
+            all_targets.append(masked_targets.cpu().numpy())
 
     all_preds = np.concatenate(all_preds, axis=0)
     all_targets = np.concatenate(all_targets, axis=0)
@@ -67,11 +72,12 @@ def denorm_model_json(model, test_loader, json_path, config=None):
 
     mae = mean_absolute_error(all_targets.flatten(), all_preds.flatten())
     rmse = np.sqrt(np.mean((all_targets - all_preds) ** 2))
-    #r2 = 1 - np.sum((all_targets - all_preds) ** 2) / np.sum((all_targets - np.mean(all_targets)) ** 2)
+    r2 = 1 - np.sum((all_targets - all_preds) ** 2) / np.sum((all_targets - np.mean(all_targets)) ** 2)
     bias = np.mean(all_preds - all_targets)
-    print(f"ALS Denormalization using {json_path}:\n \tµ: \t{mu:.2f}m\n \tstd: \t{std:.2f}m")
+    #print(f"[DEBUG] - Length all_preds: {len(all_preds)}; len all_targets: {len(all_targets)}, shape: {all_preds.shape}")
+    print(f"ALS Denormalization dn = tensor * std + µ\n \tµ: \t{mu:.2f}m\n \tstd: \t{std:.2f}m")
     print("Metrics:")
-    print(f"\tMAE: \t{mae:.2f}m\n \tRMSE: \t{rmse:.2f}m\n \tBias: \t{bias:.2f}m") 
+    print(f"\tMAE: \t{mae:.2f}m\n \tRMSE: \t{rmse:.2f}m\n \tBias: \t{bias:.2f}m\n \tR2: \t{r2:.2f}") 
     print("----------------------------------------------")
     return all_preds, all_targets
 
@@ -91,7 +97,7 @@ def plot_real_pred_delta(model, dataloader, num_samples=5, device='cpu', json_pa
     mu, std = load_normalization_params(json_path)
 
     with torch.no_grad():
-        for X_batch, y_batch in dataloader:
+        for X_batch, y_batch, _ in dataloader:
             X_batch = X_batch.to(device)
             #X_batch = X_batch.reshape([])
             y_batch = y_batch.cpu().numpy()
@@ -174,9 +180,10 @@ def plot_compact_heatmap_val_test(y_val_true, y_val_pred, y_test_true, y_test_pr
     fig, axes = plt.subplots(1, 2, figsize=(11, 5))
     vmax = max(y_val_true.max(), y_val_pred.max(), y_test_true.max(), y_test_pred.max(), 50)
     vmin = min(y_val_true.min(), y_val_pred.min(), y_test_true.min(), y_test_pred.min())
+    import matplotlib.colors as mcolors
 
     # Validation set heatmap
-    axes[0].hexbin(y_val_true.flatten(), y_val_pred.flatten(), gridsize=90, cmap='viridis', mincnt=5)
+    axes[0].hexbin(y_val_true.flatten(), y_val_pred.flatten(), gridsize=120, cmap='viridis', mincnt=10) #norm=mcolors.LogNorm()
     axes[0].plot([vmin, vmax], [vmin, vmax], color='red', linestyle='--')
     axes[0].set_xlabel('Ground Truth [m]')
     axes[0].set_ylabel('Predicted [m]')
@@ -186,7 +193,7 @@ def plot_compact_heatmap_val_test(y_val_true, y_val_pred, y_test_true, y_test_pr
     axes[0].grid(True)
 
     # Test set heatmap
-    hb = axes[1].hexbin(y_test_true.flatten(), y_test_pred.flatten(), gridsize=90, cmap='viridis', mincnt=5)
+    hb = axes[1].hexbin(y_test_true.flatten(), y_test_pred.flatten(), gridsize=120, cmap='viridis', mincnt=10) # viridis
     axes[1].plot([vmin, vmax], [vmin, vmax], color='red', linestyle='--')
     axes[1].set_xlabel('Ground Truth [m]')
     axes[1].set_ylabel('Predicted [m]')
@@ -195,7 +202,7 @@ def plot_compact_heatmap_val_test(y_val_true, y_val_pred, y_test_true, y_test_pr
     axes[1].set_ylim(0, 50)
     axes[1].grid(True)
 
-    fig.colorbar(hb, ax=axes, orientation='vertical', fraction=0.03, pad=0.04, label='Counts')
+    fig.colorbar(hb, ax=axes, orientation='vertical', fraction=0.03, pad=0.04, label='Counts',)
     fig.suptitle(title)
     #plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.show()
@@ -232,10 +239,11 @@ def plot_eval_report(train_losses, val_losses, model, val_loader,test_loader, js
     # print all config parameters 
     print("Configuration Parameters:")
     for key, value in config.items():
-        print(f"{key}: {value}")
+        print(f"{key}: \t{value}")
 
     print("-------------------------------")
-    print("Model Architecture:")
-    print(model)
+    #print("Model Architecture:")
+    #print(model)
 
     print("Evaluation report completed.")
+
