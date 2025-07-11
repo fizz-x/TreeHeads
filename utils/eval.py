@@ -242,8 +242,12 @@ def plot_eval_report(train_losses, val_losses, model, val_loader,test_loader, js
         print(f"{key}: \t{value}")
 
     print("-------------------------------")
+    # print the model size and number of parameters
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    model_size_mb = num_params * 4 / (1024 ** 2)  #
+    print(f"Model size: \t\t{model_size_mb:.2f} MB \nNumber of parameters: \t{num_params}")
     #print("Model Architecture:")
     #print(model)
-
+    print("-------------------------------")
     print("Evaluation report completed.")
 
