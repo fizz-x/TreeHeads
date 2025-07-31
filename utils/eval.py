@@ -124,6 +124,7 @@ def plot_real_pred_delta(model, dataloader, num_samples=5, device='cpu', json_pa
     model.eval()
     shown = 0
     mu, std = load_normalization_params(json_path)
+    
 
     with torch.no_grad():
         for X_batch, y_batch, _ in dataloader:
@@ -222,7 +223,7 @@ def plot_compact_heatmap_val_test(y_val_true, y_val_pred, y_test_true, y_test_pr
     import matplotlib.colors as mcolors
 
     # Validation set heatmap
-    axes[0].hexbin(y_val_true.flatten(), y_val_pred.flatten(), gridsize=100, cmap='viridis', mincnt=10) #norm=mcolors.LogNorm()
+    axes[0].hexbin(y_val_true.flatten(), y_val_pred.flatten(), gridsize=100, cmap='viridis', mincnt=15) #norm=mcolors.LogNorm()
     axes[0].plot([vmin, vmax], [vmin, vmax], color='red', linestyle='--')
     axes[0].set_xlabel('Ground Truth [m]')
     axes[0].set_ylabel('Predicted [m]')
@@ -232,7 +233,7 @@ def plot_compact_heatmap_val_test(y_val_true, y_val_pred, y_test_true, y_test_pr
     axes[0].grid(True)
 
     # Test set heatmap
-    hb = axes[1].hexbin(y_test_true.flatten(), y_test_pred.flatten(), gridsize=100, cmap='viridis', mincnt=10) # viridis
+    hb = axes[1].hexbin(y_test_true.flatten(), y_test_pred.flatten(), gridsize=100, cmap='viridis', mincnt=15) # viridis
     axes[1].plot([vmin, vmax], [vmin, vmax], color='red', linestyle='--')
     axes[1].set_xlabel('Ground Truth [m]')
     axes[1].set_ylabel('Predicted [m]')
