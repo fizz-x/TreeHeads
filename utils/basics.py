@@ -62,7 +62,8 @@ def read_multiband_tif_as_stack(tif_path, bands=13, channels=5):
         h, w = src.height, src.width
         arr = src.read()  # shape: (bands*channels, h, w)
         arr = arr.reshape((bands, channels, h, w))
-    return arr
+        desc = src.descriptions  # List of band names
+    return arr, desc
 
 def read_tif_as_array(tif_path, verbose=True):
     """

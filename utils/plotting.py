@@ -3,6 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os
 import rasterio
+import seaborn as sns
 from utils.basics import load_rasters
 
 def normalize_S2(s2, band_idxs=(10, 3, 0)):
@@ -217,3 +218,27 @@ def plot_s2_histograms_and_percentiles(s2_data, num_bands=13,band_names=None):
     plt.suptitle('S2 Band Histograms', fontsize=16)
     plt.tight_layout()
     plt.show()
+
+def plot_als_distribution_byfmask(als_np, fmask, site_name):
+    als_flat = als_np.flatten()
+    fmask_flat = fmask.flatten()
+    df = pd.DataFrame({'ALS': als_flat, 'ForestMask': fmask_flat})
+    df = df.dropna()
+    df['ForestMask'] = df['ForestMask'].astype(int).astype('category')
+
+    plt.figure(figsize=(10, 6))
+    ax = sns.kdeplot(data=df, x='ALS', hue='ForestMask', common_norm=True, fill=True, alpha=0.5, bw_adjust=0.4)
+    plt.xlabel('ALS CHM (m)')
+    plt.ylabel('Density')
+    plt.title(f'ALS CHM Distribution - {site_name}')
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        plt.legend(title='Forest Mask', loc='upper right')
+    plt.grid()
+    plt.show()
+    # also group by forest mask and print a descriptive statistics
+    print(f"Some statistics for {site_name}:")
+
+    print(f"Forest Mask: \t\t\t{df['ForestMask'].value_counts(normalize=True)[1] * 100:.2f}% Forest")
+    # now print the share of area with ALS > 2m: df['ALS'] > 2 / df['ALS'].notna()
+    print(f"Share of ALS CHM > 2m: \t\t{(df['ALS'] > 2).sum() / df['ALS'].notna().sum() * 100:.2f}%")

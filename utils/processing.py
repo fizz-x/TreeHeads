@@ -5,7 +5,11 @@ import glob
 from collections import defaultdict
 import numpy as np
 import rasterio
+import utils.basics as bsc
 from rasterio.warp import reproject, Resampling
+from types import SimpleNamespace
+import json
+import datetime
 
 def compare_raster_metadata(file_A_path, file_B_path):
     """
@@ -453,3 +457,167 @@ def resample_and_crop_dem_to_als(dem30_path, als_ref_path, output_folder, resamp
         dst.write(dem10, 1)
 
     return dem10, target_meta, output_path
+
+
+## ALL NORMALIZATION FUNCTIONS
+
+def normalize_and_save_s2_geotiff(input_path, namespace, attr_name, min_percentile=0.1, max_percentile=99.9,override=False):
+    """
+    Reads a GeoTIFF, normalizes each band to [0,1] based on percentiles, saves with '_norm' suffix,
+    and updates the namespace with the new filename.
+
+    Parameters:
+    - input_path: str, path to the original GeoTIFF
+    - namespace: SimpleNamespace, where the filename should be updated
+    - attr_name: str, attribute name in the namespace to update
+    - min_percentile: float, lower percentile for normalization
+    - max_percentile: float, upper percentile for normalization
+    """
+
+    # The original S2 data is int16, which can represent integer values from -32768 to 32767.
+    # When normalizing to [0, 1], you convert the data to floating point.
+    # float16 has less precision than float32 (about 3 decimal digits vs 7), but for normalized reflectance data,
+    # float16 is usually sufficient for most ML and remote sensing workflows.
+    # You will lose some precision (not information about the original int16 values, but about the normalized value),
+    # but for visualization and most ML tasks, this is acceptable.
+    # If you need to preserve more precision, use float32 or scale to uint16 (0-65535).
+    # For most use cases, float16 is a good compromise between file size and precision.
+
+    base, ext = os.path.splitext(input_path)
+    output_path = f"{base}_norm{ext}"
+
+    if os.path.exists(output_path) and not override:
+        # Update namespace and print message
+        if not hasattr(namespace, 'S2_norm'):
+            namespace.S2_norm = SimpleNamespace()
+        setattr(namespace.S2_norm, attr_name, output_path)
+        print(f"✅ Normalized file already exists: {output_path}. Namespace updated.")
+        return
+
+    with rasterio.open(input_path) as src:
+        s2_data = src.read().astype(np.float32)
+        meta = src.meta.copy()
+        band_count = s2_data.shape[0]
+        descriptions = src.descriptions if hasattr(src, 'descriptions') else None
+
+    # Set negative values to nan
+    #s2_data = s2_data.astype(np.float32)
+    s2_data[s2_data < 0] = np.nan
+
+    normalized_s2 = np.zeros_like(s2_data, dtype=np.float32)
+    for i in range(band_count):
+        band_data = s2_data[i]
+        band_min = np.nanpercentile(band_data, min_percentile)
+        band_max = np.nanpercentile(band_data, max_percentile)
+        band_data = np.clip(band_data, band_min, band_max)
+        if band_max - band_min > 0:
+            normalized_s2[i] = (band_data - band_min) / (band_max - band_min)
+        else:
+            normalized_s2[i] = np.nan
+
+    # Prepare output path
+    base, ext = os.path.splitext(input_path)
+    output_path = f"{base}_norm{ext}"
+
+    # Save normalized data
+    meta.update({'dtype': 'float32', 'compress': 'lzw'})
+    with rasterio.open(output_path, 'w', **meta) as dst:
+        dst.write(normalized_s2)
+        if descriptions:
+            dst.descriptions = descriptions
+
+    # Update namespace: create S2_norm if not present, then set attribute (e.g., spring)
+    if not hasattr(namespace, 'S2_norm'):
+        namespace.S2_norm = SimpleNamespace()
+    setattr(namespace.S2_norm, attr_name, output_path)
+    #print(f"✅ Normalized S2 data saved to {output_path} and namespace.S2_norm.{attr_name} updated.")
+
+# now lets do ALS normalization 
+
+def compute_chm_norm_params(SITE1, SITE2, SITE3):
+
+    fmask1 = bsc.read_tif_as_array(SITE1.FMASK, verbose=False)
+    fmask2 = bsc.read_tif_as_array(SITE2.FMASK, verbose=False)
+    fmask3 = bsc.read_tif_as_array(SITE3.FMASK, verbose=False)
+    als1 = bsc.read_tif_as_array(SITE1.CHM, verbose=False)
+    als2 = bsc.read_tif_as_array(SITE2.CHM, verbose=False)
+    als3 = bsc.read_tif_as_array(SITE3.CHM, verbose=False)
+
+    # Ensure fmasks are integer type for comparison
+    fmask1_bin = (fmask1.astype(int) == 1)
+    fmask2_bin = (fmask2.astype(int) == 1)
+    fmask3_bin = (fmask3.astype(int) == 1)
+
+    # Mask out NaNs in ALS arrays and select only forest pixels
+    als1_valid = als1[~np.isnan(als1) & fmask1_bin]
+    als2_valid = als2[~np.isnan(als2) & fmask2_bin]
+    als3_valid = als3[~np.isnan(als3) & fmask3_bin]
+
+    # Calculate mu and std for each combination of ALS valid arrays
+    combos = {
+        "001": [als1_valid],
+        "010": [als2_valid],
+        "100": [als3_valid],
+        "011": [als1_valid, als2_valid],
+        "101": [als1_valid, als3_valid],
+        "110": [als2_valid, als3_valid],
+        "111": [als1_valid, als2_valid, als3_valid]
+    }
+
+    # Use attribute names that are valid for SimpleNamespace (prefix with underscore)
+    norm_params = {}
+    for key, arrs in combos.items():
+        attr_key = f"_{key}"
+        lengths = [len(a) for a in arrs]
+        total = sum(lengths)
+        weights = [l / total for l in lengths]
+        concat = np.concatenate(arrs)
+        mu = np.average([np.mean(a) for a in arrs], weights=weights)
+        std = np.average([np.std(a) for a in arrs], weights=weights)
+        norm_params[attr_key] = {"mu": float(mu), "std": float(std), "n": int(total)}
+
+    # Option 1: Store as JSON file
+    # with open("chm_norm_params.json", "w") as f:
+    #     json.dump(norm_params, f, indent=2)
+
+    # Option 2: Store in a SimpleNamespace
+    NORMPARAMS = SimpleNamespace()
+    NORMPARAMS.chm = SimpleNamespace(**norm_params)
+    NORMPARAMS.info = SimpleNamespace(
+        description="CHM normalization parameters",
+        encoding="001: FirstSite only, 010: Second Site, 100: Third Site",
+        version="1.0"
+    )
+    return NORMPARAMS
+
+def normalize_chm(SITE1,SITE2,SITE3,NORMPARAMS,jointnorm = True):
+
+    # Read ALS data
+    als1 = bsc.read_tif_as_array(SITE1.CHM, verbose=False)
+    als2 = bsc.read_tif_as_array(SITE2.CHM, verbose=False)
+    als3 = bsc.read_tif_as_array(SITE3.CHM, verbose=False)
+    if jointnorm:
+        # Combine all valid ALS data for joint normalization
+        als1_norm = (als1 - NORMPARAMS.chm._111["mu"]) / NORMPARAMS.chm._111["std"]
+        als2_norm = (als2 - NORMPARAMS.chm._111["mu"]) / NORMPARAMS.chm._111["std"]
+        als3_norm = (als3 - NORMPARAMS.chm._111["mu"]) / NORMPARAMS.chm._111["std"]
+
+    else:
+        # Apply normalization individually
+        als1_norm = (als1 - NORMPARAMS.chm._001["mu"]) / NORMPARAMS.chm._001["std"]
+        als2_norm = (als2 - NORMPARAMS.chm._010["mu"]) / NORMPARAMS.chm._010["std"]
+        als3_norm = (als3 - NORMPARAMS.chm._100["mu"]) / NORMPARAMS.chm._100["std"]
+        als2_norm = (als2 - NORMPARAMS.chm["010"].mu) / NORMPARAMS.chm["010"].std
+        als3_norm = (als3 - NORMPARAMS.chm["100"].mu) / NORMPARAMS.chm["100"].std
+
+    # Save normalized data using original metadata
+    for als_norm, site in zip([als1_norm, als2_norm, als3_norm], [SITE1, SITE2, SITE3]):
+        with rasterio.open(site.CHM) as src:
+            meta = src.meta.copy()
+            meta.update(dtype='float32', nodata=np.nan)
+            out_path = site.CHM.replace(".tif", "_norm111.tif")
+            with rasterio.open(out_path, 'w', **meta) as dst:
+                dst.write(als_norm.astype(np.float32), 1)
+                dst.descriptions = [f"nCHM_global"]
+            site.CHM_norm = out_path
+
