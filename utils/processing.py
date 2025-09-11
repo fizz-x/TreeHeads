@@ -7,38 +7,48 @@ import numpy as np
 import rasterio
 from rasterio.warp import reproject, Resampling
 
-def check_projection(als_path, vrt_path):
+def compare_raster_metadata(file_A_path, file_B_path):
     """
-    Check if the projections of ALS and VRT files match.
+    Compare CRS and transform between two raster files (A and B), printing their names and metadata.
     """
-    with rasterio.open(als_path) as als_src:
-        als_crs = als_src.crs
-        als_transform = als_src.transform
+    with rasterio.open(file_A_path) as src_A:
+        crs_A = src_A.crs
+        transform_A = src_A.transform
+        desc_A = src_A.descriptions
+        shape_A = src_A.shape
+        count_A = src_A.count
 
-    with rasterio.open(vrt_path) as vrt_src:
-        vrt_crs = vrt_src.crs
-        vrt_transform = vrt_src.transform
-        vrt_dsc = vrt_src.descriptions
-        vrt_shape = vrt_src.shape
-        vrt_count = vrt_src.count
-        print(f"VRT Descriptions: {vrt_dsc}")
-        print(f"VRT Shape: {vrt_shape}")
-        print(f"VRT Count: {vrt_count}")
+    with rasterio.open(file_B_path) as src_B:
+        crs_B = src_B.crs
+        transform_B = src_B.transform
+        desc_B = src_B.descriptions
+        shape_B = src_B.shape
+        count_B = src_B.count
 
-    if als_crs == vrt_crs:
+    print(f"\n--- Raster A: {os.path.basename(file_A_path)} ---")
+    print(f"Descriptions: {desc_A}")
+    print(f"Shape: {shape_A}")
+    print(f"Band count: {count_A}")
+    print(f"CRS: {crs_A}")
+    print(f"Transform: {transform_A}")
+
+    print(f"\n--- Raster B: {os.path.basename(file_B_path)} ---")
+    print(f"Descriptions: {desc_B}")
+    print(f"Shape: {shape_B}")
+    print(f"Band count: {count_B}")
+    print(f"CRS: {crs_B}")
+    print(f"Transform: {transform_B}")
+
+    print("\n--- Comparison ---")
+    if crs_A == crs_B:
         print("✅ CRS Projections match!")
     else:
         print("❌ CRS Projections do not match!")
 
-    print(f"ALS CRS: {als_crs}")
-    print(f"VRT CRS: {vrt_crs}")
-
-    if als_transform == vrt_transform:
+    if transform_A == transform_B:
         print("✅ Transformations match!")
     else:
         print("❌ Transformations do not match!")
-    print("ALS Transform:", als_transform)
-    print("VRT Transform:", vrt_transform)
 
 # ALS CLEANUP AND PROCESSING FUNCTIONS
 def clean_als_tif(input_path, output_path, min_value=0, max_value=75, override=False):
@@ -357,7 +367,7 @@ def transform_and_crop_to_als(input_path, als_tif_path, s2_path, OUTPUT_FOLDER):
     with rasterio.open(als_tif_path) as als_src:
         als_bounds = als_src.bounds
 
-    # Read and reproject/crop the forest mask
+    # Read and reproject/crop the raster
     with rasterio.open(input_path) as src:
         data = src.read(1)
         data_reprojected = np.zeros((target_height, target_width), dtype=np.uint8)
@@ -386,10 +396,60 @@ def transform_and_crop_to_als(input_path, als_tif_path, s2_path, OUTPUT_FOLDER):
             'transform': rasterio.windows.transform(s2_window, target_transform)
         })
 
-    output_path = os.path.join(OUTPUT_FOLDER, os.path.basename(input_path))
-    output_path = os.path.join(OUTPUT_FOLDER, os.path.basename(input_path))
+    output_path = os.path.join(OUTPUT_FOLDER, os.path.basename(input_path)[: -4] + "_P.tif")
+    #output_path = os.path.join(OUTPUT_FOLDER, os.path.basename(input_path))
 
     with rasterio.open(output_path, 'w', **cropped_meta) as dst:
         dst.write(cropped_data, 1)
 
-    return cropped_data, cropped_meta
+    return cropped_data, cropped_meta, output_path
+
+
+def resample_and_crop_dem_to_als(dem30_path, als_ref_path, output_folder, resampling_method=Resampling.bilinear):
+    """
+    Resample DEM from 30m to 10m resolution and crop to ALS reference raster.
+    Output filename will be similar to input, but with 'DEM10' instead of 'DEM30'.
+    """
+    # Generate output filename
+    dem30_filename = os.path.basename(dem30_path)
+    dem10_filename = dem30_filename.replace('DEM30', 'DEM10')
+    output_path = os.path.join(output_folder, dem10_filename)
+
+    # Open ALS reference to get target shape, transform, crs
+    with rasterio.open(als_ref_path) as als_src:
+        target_crs = als_src.crs
+        target_transform = als_src.transform
+        target_height = als_src.height
+        target_width = als_src.width
+        target_meta = als_src.meta.copy()
+        target_meta.update({
+            'driver': 'GTiff',
+            'dtype': 'float32',
+            'compress': 'lzw',
+            'tiled': True,
+            'blockxsize': 256,
+            'blockysize': 256,
+            'interleave': 'band',
+            'count': 1,
+            'nodata': 0
+        })
+
+    # Open DEM30 and reproject/resample to ALS grid
+    with rasterio.open(dem30_path) as dem_src:
+        dem_data = dem_src.read(1)
+        dem10 = np.zeros((target_height, target_width), dtype=np.float32)
+        reproject(
+            source=dem_data,
+            destination=dem10,
+            src_transform=dem_src.transform,
+            src_crs=dem_src.crs,
+            dst_transform=target_transform,
+            dst_crs=target_crs,
+            resampling=resampling_method
+        )
+
+    # Write output
+    with rasterio.open(output_path, 'w', **target_meta) as dst:
+        dst.write(dem10, 1)
+
+    return dem10, target_meta, output_path

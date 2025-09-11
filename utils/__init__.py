@@ -2,6 +2,7 @@
 from .basics import *
 from .plotting import *
 from .eval import *
+from .processing import *
 
 import numpy as np
 import pandas as pd
