@@ -220,7 +220,22 @@ def train_model(model, train_loader, val_loader, cfg, global_config):
 
     return model, logs
 
-def save_results(model, logs, cfg):
+# def denorm_chm(chm, params):
+#     """
+#     Denormalizes the canopy height model (CHM) using provided normalization parameters.
+    
+#     Args:
+#         chm (np.ndarray): Normalized CHM array.
+#         params (dict): Dictionary containing 'mean' and 'std' for denormalization.
+    
+#     Returns:
+#         np.ndarray: Denormalized CHM array.
+#     """
+#     mean = params['mu']
+#     std = params['std']
+#     return chm * std + mean
+
+def save_results(model, val_loader, test_loader, normparams, logs, cfg):
 
     out_dir = os.path.join("../results/train", cfg['exp'])
     os.makedirs(out_dir, exist_ok=True)
@@ -234,8 +249,58 @@ def save_results(model, logs, cfg):
     with open(os.path.join(out_dir, "cfg.json"), "w") as f:
         json.dump(cfg, f)
 
-    print("Results saved to:", out_dir)
     # Optionally, save predictions and targets for val/test sets
-    # preds, targets = get_predictions_and_targets(val_loader, model)
-    # np.save(os.path.join(out_dir, "predictions_val.npy"), preds)
-    # np.save(os.path.join(out_dir, "targets_val.npy"), targets)
+    preds_val, targets_val = get_predictions_and_targets(val_loader, model, normparams)
+    preds_test, targets_test = get_predictions_and_targets(test_loader, model, normparams)
+
+    # Zip predictions and targets for val/test sets and save as .npz files
+    np.savez(os.path.join(out_dir, "val_preds_targets.npz"), preds_val=preds_val, targets_val=targets_val)
+    np.savez(os.path.join(out_dir, "test_preds_targets.npz"), preds_test=preds_test, targets_test=targets_test)
+
+    print("Results saved to:", out_dir)
+
+def load_np_stacks(exp_dir):
+    """
+    Loads prediction and target numpy arrays from the experiment results folder.
+    Returns preds_val, targets_val, preds_test, targets_test as numpy arrays.
+    """
+    out_dir = os.path.join("../results/train", exp_dir)
+    val_npz = np.load(os.path.join(out_dir, "val_preds_targets.npz"))
+    test_npz = np.load(os.path.join(out_dir, "test_preds_targets.npz"))
+    preds_val = val_npz["preds_val"]
+    targets_val = val_npz["targets_val"]
+    preds_test = test_npz["preds_test"]
+    targets_test = test_npz["targets_test"]
+    return preds_val, targets_val, preds_test, targets_test
+
+def get_predictions_and_targets(loader, model, normparams):
+    def denorm_chm(chm, params):
+        """
+        Denormalizes the canopy height model (CHM) using provided normalization parameters.
+        
+        Args:
+            chm (np.ndarray): Normalized CHM array.
+            params (dict): Dictionary containing 'mean' and 'std' for denormalization.
+        
+        Returns:
+            np.ndarray: Denormalized CHM array.
+        """
+        mean = params['mu']
+        std = params['std']
+        return chm * std + mean
+
+    model.eval()
+    device = next(model.parameters()).device
+    preds = []
+    targets = []
+    with torch.no_grad():
+        for X_batch, y_batch, mask in loader:
+            X_batch = X_batch.to(device)
+            outputs = model(X_batch)
+            preds.append(outputs.cpu())
+            targets.append(y_batch.cpu())
+    preds = torch.cat(preds, dim=0).numpy()
+    targets = torch.cat(targets, dim=0).numpy()
+    preds = denorm_chm(preds, normparams)
+    targets = denorm_chm(targets, normparams)
+    return preds, targets
