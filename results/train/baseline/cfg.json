@@ -1,0 +1,1 @@
+{"spectral": {"seasons": ["summer"], "quantiles": ["Q50"]}, "aux_inputs": ["FMASK"], "strategy": "all_in_model", "outputs": {"canopy_height": {"target": "CHM_norm", "loss": "huber"}}, "exp": "baseline"}
