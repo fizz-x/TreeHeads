@@ -1,0 +1,51 @@
+SITE1:
+  CHM: ../data/01_input_pipeline/01_Ebrach/01_CHM.tif
+  CHM_norm: ../data/01_input_pipeline/01_Ebrach/01_CHM_norm111.tif
+  DEM: ../data/01_input_pipeline/01_Ebrach/01_DEM10.tif
+  DLT: ../data/01_input_pipeline/01_Ebrach/01_DLT_P.tif
+  FMASK: ../data/01_input_pipeline/01_Ebrach/01_FMA_P.tif
+  NAME: Ebrach
+  PATH: ../data/01_input_pipeline/01_Ebrach
+  PATHF: ../data/01_input_pipeline/01_Ebrach/01_
+  S2:
+    autumn: ../data/01_input_pipeline/01_Ebrach/S2/autumn/S2_stacked.tif
+    spring: ../data/01_input_pipeline/01_Ebrach/S2/spring/S2_stacked.tif
+    summer: ../data/01_input_pipeline/01_Ebrach/S2/summer/S2_stacked.tif
+  S2_norm:
+    autumn: ../data/01_input_pipeline/01_Ebrach/S2/autumn/S2_stacked_norm.tif
+    spring: ../data/01_input_pipeline/01_Ebrach/S2/spring/S2_stacked_norm.tif
+    summer: ../data/01_input_pipeline/01_Ebrach/S2/summer/S2_stacked_norm.tif
+SITE2:
+  CHM: ../data/01_input_pipeline/02_Wald/02_CHM.tif
+  CHM_norm: ../data/01_input_pipeline/02_Wald/02_CHM_norm111.tif
+  DEM: ../data/01_input_pipeline/02_Wald/02_DEM10.tif
+  DLT: ../data/01_input_pipeline/02_Wald/02_DLT_P.tif
+  FMASK: ../data/01_input_pipeline/02_Wald/02_FMA_P.tif
+  NAME: Waldbrunn
+  PATH: ../data/01_input_pipeline/02_Wald
+  PATHF: ../data/01_input_pipeline/02_Wald/02_
+  S2:
+    autumn: ../data/01_input_pipeline/02_Wald/S2/autumn/S2_stacked.tif
+    spring: ../data/01_input_pipeline/02_Wald/S2/spring/S2_stacked.tif
+    summer: ../data/01_input_pipeline/02_Wald/S2/summer/S2_stacked.tif
+  S2_norm:
+    autumn: ../data/01_input_pipeline/02_Wald/S2/autumn/S2_stacked_norm.tif
+    spring: ../data/01_input_pipeline/02_Wald/S2/spring/S2_stacked_norm.tif
+    summer: ../data/01_input_pipeline/02_Wald/S2/summer/S2_stacked_norm.tif
+SITE3:
+  CHM: ../data/01_input_pipeline/03_Berch/03_CHM.tif
+  CHM_norm: ../data/01_input_pipeline/03_Berch/03_CHM_norm111.tif
+  DEM: ../data/01_input_pipeline/03_Berch/03_DEM10.tif
+  DLT: ../data/01_input_pipeline/03_Berch/03_DLT_P.tif
+  FMASK: ../data/01_input_pipeline/03_Berch/03_FMA_P.tif
+  NAME: Berchtesgaden
+  PATH: ../data/01_input_pipeline/03_Berch
+  PATHF: ../data/01_input_pipeline/03_Berch/03_
+  S2:
+    autumn: ../data/01_input_pipeline/03_Berch/S2/autumn/S2_stacked.tif
+    spring: ../data/01_input_pipeline/03_Berch/S2/spring/S2_stacked.tif
+    summer: ../data/01_input_pipeline/03_Berch/S2/summer/S2_stacked.tif
+  S2_norm:
+    autumn: ../data/01_input_pipeline/03_Berch/S2/autumn/S2_stacked_norm.tif
+    spring: ../data/01_input_pipeline/03_Berch/S2/spring/S2_stacked_norm.tif
+    summer: ../data/01_input_pipeline/03_Berch/S2/summer/S2_stacked_norm.tif

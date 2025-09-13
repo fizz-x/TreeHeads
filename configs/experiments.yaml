@@ -1,0 +1,78 @@
+baseline:
+  spectral:
+    seasons: ["summer"]
+    quantiles: ["Q50"]
+  aux_inputs: ["FMASK"]
+  strategy: all_in_model
+  outputs:
+    canopy_height:
+      target: "CHM_norm"
+      loss: huber
+
+pixel_composites:
+  spectral:
+    seasons: ["summer"]
+    quantiles: ["Q25","Q50","Q75"]
+  aux_inputs: ["FMASK"]
+  strategy: all_in_model
+  outputs:
+    canopy_height:
+      target: "CHM_norm"
+      loss: huber
+
+seasonal_composites:
+  spectral:
+    seasons: ["spring","summer","autumn"]
+    quantiles: ["Q50"]
+  aux_inputs: ["FMASK"]
+  strategy: all_in_model
+  outputs:
+    canopy_height:
+      target: "CHM_norm"
+      loss: huber
+
+pixel_and_seasonal:
+  spectral:
+    seasons: ["spring","summer","autumn"]
+    quantiles: ["Q25","Q50","Q75"]
+  aux_inputs: ["FMASK"]
+  strategy: all_in_model
+  outputs:
+    canopy_height:
+      target: "CHM_norm"
+      loss: huber
+
+all_aux_data:
+  spectral:
+    seasons: ["spring","summer","autumn"]
+    quantiles: ["Q25","Q50","Q75"]
+  aux_inputs: ["FMASK","DLT","DEM"]
+  strategy: all_in_model
+  outputs:
+    canopy_height:
+      target: "CHM_norm"
+      loss: huber
+
+mid_level_learning:
+  spectral:
+    seasons: ["spring","summer","autumn"]
+    quantiles: ["Q25","Q50","Q75"]
+  aux_inputs: []         # not stacked
+  strategy: mid_level
+  outputs:
+    canopy_height:
+      target: "CHM_norm"
+      loss: huber
+    tree_cover:
+      target: "FMASK"
+      loss: bce
+    leaf_type:
+      target: "DLT"
+      loss: crossentropy
+    als_distribution:
+      target: "als_distribution"
+      loss: kl
+
+pretrained_encoder:
+  inherits: mid_level_learning
+  pretrained: true
