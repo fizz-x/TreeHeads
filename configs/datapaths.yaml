@@ -1,6 +1,9 @@
 SITE1:
   CHM: ../data/01_input_pipeline/01_Ebrach/01_CHM.tif
   CHM_norm: ../data/01_input_pipeline/01_Ebrach/01_CHM_norm111.tif
+  CHM_norm_params:
+    mu: 29.069731736028462
+    std: 7.518862605606749
   DEM: ../data/01_input_pipeline/01_Ebrach/01_DEM10.tif
   DLT: ../data/01_input_pipeline/01_Ebrach/01_DLT_P.tif
   FMASK: ../data/01_input_pipeline/01_Ebrach/01_FMA_P.tif
@@ -18,6 +21,9 @@ SITE1:
 SITE2:
   CHM: ../data/01_input_pipeline/02_Wald/02_CHM.tif
   CHM_norm: ../data/01_input_pipeline/02_Wald/02_CHM_norm111.tif
+  CHM_norm_params:
+    mu: 29.069731736028462
+    std: 7.518862605606749
   DEM: ../data/01_input_pipeline/02_Wald/02_DEM10.tif
   DLT: ../data/01_input_pipeline/02_Wald/02_DLT_P.tif
   FMASK: ../data/01_input_pipeline/02_Wald/02_FMA_P.tif
@@ -35,6 +41,9 @@ SITE2:
 SITE3:
   CHM: ../data/01_input_pipeline/03_Berch/03_CHM.tif
   CHM_norm: ../data/01_input_pipeline/03_Berch/03_CHM_norm111.tif
+  CHM_norm_params:
+    mu: 29.069731736028462
+    std: 7.518862605606749
   DEM: ../data/01_input_pipeline/03_Berch/03_DEM10.tif
   DLT: ../data/01_input_pipeline/03_Berch/03_DLT_P.tif
   FMASK: ../data/01_input_pipeline/03_Berch/03_FMA_P.tif

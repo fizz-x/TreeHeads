@@ -67,11 +67,11 @@ mid_level_learning:
     tree_cover:
       target: "FMASK"
       loss: bce
-      weight: 0.5
+      weight: 0.3
     leaf_type:
       target: "DLT"
       loss: crossentropy
-      weight: 0.5
+      weight: 0.2
     # als_distribution:
     #   target: "als_distribution"
     #   loss: kl
