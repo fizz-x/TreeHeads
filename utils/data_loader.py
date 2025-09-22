@@ -1,6 +1,6 @@
 import rasterio
 import numpy as np
-from .config_loader import get_config
+#from .config_loader import get_config
 from sklearn.model_selection import train_test_split
 #from .data_loader import load_raster, QUANTILE_IDX
 
@@ -10,8 +10,8 @@ QUANTILE_IDX = {"Q25": 0, "Q50": 1, "Q75": 2, "AVG": 3, "STD": 4}
 def load_raster(path):
     with rasterio.open(path) as src:
         arr = src.read().astype(np.float32)  # shape (bands, H, W)
-        if src.nodata is not None:
-            arr[arr == src.nodata] = np.nan
+        # if src.nodata is not None:
+        #     arr[arr == src.nodata] = np.nan
     return arr
 
 def read_multiband_tif_as_stack(tif_path, bands=13, channels=5):

@@ -12,12 +12,12 @@ import json
 global_config = {
     'patch_size': 32,
     'num_bands': 15,        # change based on input (13+1 for fmask, +1 for mask channel)
-    'batch_size': 64,
-    'learning_rate': 5e-4,
-    'weight_decay': 5e-4,
+    'batch_size': 32,
+    'learning_rate': 8e-4,
+    'weight_decay': 2e-4,
     #'momentum': 0.9,
-    'epochs': 150,
-    'huber_delta': 0.8,
+    'epochs': 250,
+    'huber_delta': 1.35,
     'device':  'mps' if torch.backends.mps.is_available() else 'cpu'
 }
 
@@ -32,19 +32,28 @@ class S2CanopyHeightDataset(Dataset):
         y_valid = ~torch.isnan(self.y).any(dim=1, keepdim=True)  # (N, 1, 32, 32)
         self.mask = x_valid & y_valid
 
+        # Replace NaNs in input and target with -1.0 wherever mask is False
+        # self.X[self.mask.expand_as(self.X) == 0] = -1.0
+        # self.y[self.mask.expand_as(self.y) == 0] = -7.0 #dont do this with y
         # Replace NaNs in input with -1.0 or some other value
         self.X[torch.isnan(self.X)] = -1.0 
-        self.y[torch.isnan(self.y)] = -1.0 
+        self.y[torch.isnan(self.y)] = -10.0 
+
     def __len__(self):
         return self.X.shape[0]
     # def __getitem__(self, idx):
     #     return self.X[idx], self.y[idx]
+    def validshare(self):
+        # Returns the fraction of valid pixels (mask == True) across the entire dataset
+        total_pixels = self.mask.numel()
+        valid_pixels = self.mask.sum().item()
+        return valid_pixels / total_pixels
+
     def __getitem__(self, idx):
         x = self.X[idx]                         # (num_bands, 32, 32)
         m = self.mask[idx].float()             # (1, 32, 32)
         x_with_mask = torch.cat([x, m], dim=0) # (num_bands + 1, 32, 32)
         return x_with_mask, self.y[idx], self.mask[idx]  # keep mask for loss too
-
 
 # train_loader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True)
 # val_loader = DataLoader(val_dataset, batch_size=config['batch_size'])
@@ -157,8 +166,8 @@ def train_model(model, train_loader, val_loader, cfg, global_config):
     device = global_config['device']
     model.to(device)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=global_config['learning_rate'], weight_decay=global_config['weight_decay'])
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=7, factor=0.5, min_lr=1e-6)
+    optimizer = torch.optim.Adam(model.parameters(), lr=global_config['learning_rate'], weight_decay=global_config['weight_decay'])
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=15, factor=0.5, min_lr=1e-6)
     
     #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=global_config['epochs'], eta_min=1e-6)
 
@@ -250,14 +259,75 @@ def save_results(model, val_loader, test_loader, normparams, logs, cfg):
         json.dump(cfg, f)
 
     # Optionally, save predictions and targets for val/test sets
-    preds_val, targets_val = get_predictions_and_targets(val_loader, model, normparams)
-    preds_test, targets_test = get_predictions_and_targets(test_loader, model, normparams)
+    preds_val, targets_val, maskval = get_predictions_and_targets(val_loader, model, normparams)
+    preds_test, targets_test, masktest = get_predictions_and_targets(test_loader, model, normparams)
 
     # Zip predictions and targets for val/test sets and save as .npz files
-    np.savez(os.path.join(out_dir, "val_preds_targets.npz"), preds_val=preds_val, targets_val=targets_val)
-    np.savez(os.path.join(out_dir, "test_preds_targets.npz"), preds_test=preds_test, targets_test=targets_test)
+    np.savez(os.path.join(out_dir, "val_preds_targets.npz"), preds_val=preds_val, targets_val=targets_val, maskval=maskval)
+    np.savez(os.path.join(out_dir, "test_preds_targets.npz"), preds_test=preds_test, targets_test=targets_test, masktest=masktest)
 
     print("Results saved to:", out_dir)
+
+def denorm_chm(chm, params):
+    """
+    Denormalizes the canopy height model (CHM) using provided normalization parameters.
+    
+    Args:
+        chm (np.ndarray): Normalized CHM array.
+        params (dict): Dictionary containing 'mean' and 'std' for denormalization.
+    
+    Returns:
+        np.ndarray: Denormalized CHM array.
+    """
+    mean = params['mu']
+    std = params['std']
+    return chm * std + mean
+
+def get_predictions_and_targets(loader, model, normparams):
+
+    # preds = []
+    # targets = []
+    # masklayer = []
+    # with torch.no_grad():
+    #     for X_batch, y_batch, mask in loader:
+    #         X_batch = X_batch.to(device)
+    #         outputs = model(X_batch)
+    #         preds.append(outputs.cpu())
+    #         targets.append(y_batch.cpu())
+    #         masklayer.append(mask.cpu())
+
+    model.eval()
+    device = next(model.parameters()).device
+    preds = []
+    targets = []
+    masklayer = []
+    with torch.no_grad():
+        for X_batch, y_batch, mask in loader:
+            X_batch = X_batch.to(device)
+            outputs = model(X_batch)
+            preds.append(outputs.cpu())
+            targets.append(y_batch.cpu())
+            masklayer.append(mask.cpu())
+
+    preds = torch.cat(preds, dim=0).numpy()
+    targets = torch.cat(targets, dim=0).numpy()
+    masklayer = torch.cat(masklayer, dim=0).numpy()
+
+    preds = denorm_chm(preds, normparams)
+    targets = denorm_chm(targets, normparams)
+    return preds, targets, masklayer
+
+def load_results(exp_dir):
+    """
+    Loads model weights, logs, and cfg from the experiment results folder.
+    """
+    out_dir = os.path.join("../results/train", exp_dir)
+    model_weights = torch.load(os.path.join(out_dir, "model.pth"))
+    with open(os.path.join(out_dir, "logs.json"), "r") as f:
+        logs = json.load(f)
+    with open(os.path.join(out_dir, "cfg.json"), "r") as f:
+        cfg = json.load(f)
+    return model_weights, logs, cfg
 
 def load_np_stacks(exp_dir):
     """
@@ -271,36 +341,6 @@ def load_np_stacks(exp_dir):
     targets_val = val_npz["targets_val"]
     preds_test = test_npz["preds_test"]
     targets_test = test_npz["targets_test"]
-    return preds_val, targets_val, preds_test, targets_test
-
-def get_predictions_and_targets(loader, model, normparams):
-    def denorm_chm(chm, params):
-        """
-        Denormalizes the canopy height model (CHM) using provided normalization parameters.
-        
-        Args:
-            chm (np.ndarray): Normalized CHM array.
-            params (dict): Dictionary containing 'mean' and 'std' for denormalization.
-        
-        Returns:
-            np.ndarray: Denormalized CHM array.
-        """
-        mean = params['mu']
-        std = params['std']
-        return chm * std + mean
-
-    model.eval()
-    device = next(model.parameters()).device
-    preds = []
-    targets = []
-    with torch.no_grad():
-        for X_batch, y_batch, mask in loader:
-            X_batch = X_batch.to(device)
-            outputs = model(X_batch)
-            preds.append(outputs.cpu())
-            targets.append(y_batch.cpu())
-    preds = torch.cat(preds, dim=0).numpy()
-    targets = torch.cat(targets, dim=0).numpy()
-    preds = denorm_chm(preds, normparams)
-    targets = denorm_chm(targets, normparams)
-    return preds, targets
+    maskval = val_npz["maskval"]
+    masktest = test_npz["masktest"]
+    return preds_val, targets_val, preds_test, targets_test, maskval, masktest
