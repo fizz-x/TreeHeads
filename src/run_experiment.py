@@ -1,5 +1,5 @@
-from src.config_loader import get_config, load_yaml
-from src.data_loader import build_patched_dataset
+from utils.config_loader import get_config, load_yaml
+from utils.data_loader import build_patched_dataset
 
 def main():
     # Load configurations

@@ -375,3 +375,32 @@ def plot_eval_report(train_losses, val_losses, model, val_loader, test_loader, j
     print("-------------------------------")
     print("Evaluation report completed.")
 
+def compile_new_eval_report(exp_name, model_weights, logs, cfg, preds_val, targets_val, preds_test, targets_test):
+    """
+    Compile a new evaluation report for the given experiment.
+    """
+    report = {
+        "experiment_name": exp_name,
+        "model_weights": model_weights,
+        "logs": logs,
+        "config": cfg,
+        "predictions": {
+            "validation": preds_val,
+            "test": preds_test
+        },
+        "targets": {
+            "validation": targets_val,
+            "test": targets_test
+        }
+    }
+    return report
+
+def printout_eval_report(report):
+    """
+    Print the evaluation report in a readable format.
+    """
+    print("Evaluation Report:")
+    print("-------------------------------")
+    print(f"Experiment Name: {report['experiment_name']}")
+    print("-------------------------------")
+

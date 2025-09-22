@@ -620,3 +620,7 @@ def normalize_chm(SITE1,SITE2,SITE3,NORMPARAMS,jointnorm = True):
                 dst.write(als_norm.astype(np.float32), 1)
                 dst.descriptions = [f"nCHM_global"]
             site.CHM_norm = out_path
+            site.CHM_norm_params = {
+                "mu": NORMPARAMS.chm._111["mu"],
+                "std": NORMPARAMS.chm._111["std"]
+            }
