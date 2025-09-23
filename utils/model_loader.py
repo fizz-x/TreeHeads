@@ -15,7 +15,10 @@ global_config = {
     'batch_size': 32,
     'learning_rate': 8e-4,
     'weight_decay': 2e-4,
-    #'momentum': 0.9,
+    'scheduler_type': 'ReduceLROnPlateau',
+    'scheduler_patience':15,
+    'scheduler_factor':0.5,
+    'scheduler_min_lr':1e-6,
     'epochs': 250,
     'huber_delta': 1.35,
     'device':  'mps' if torch.backends.mps.is_available() else 'cpu'
@@ -167,8 +170,8 @@ def train_model(model, train_loader, val_loader, cfg, global_config):
     model.to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=global_config['learning_rate'], weight_decay=global_config['weight_decay'])
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=15, factor=0.5, min_lr=1e-6)
-    
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=global_config['scheduler_patience'], factor=global_config['scheduler_factor'], min_lr=global_config['scheduler_min_lr'])
+
     #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=global_config['epochs'], eta_min=1e-6)
 
     # build loss functions from config

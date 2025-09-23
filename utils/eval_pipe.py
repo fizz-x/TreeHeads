@@ -78,9 +78,8 @@ def denorm_model_json(model, test_loader, json_path, config=None,verbose=False):
 
     return all_preds, all_targets
 
-def write_metrics_to_df(report, sites, cfg, df=None):
+def write_metrics_to_df(report, sites, global_config, df=None):
 
-    #above2m = cfg.get("above2m", False)
     experiment_name = report.get("experiment_name", "Unknown")
 
     metrics = {}
@@ -91,21 +90,29 @@ def write_metrics_to_df(report, sites, cfg, df=None):
     mv = report["masks"]["validation"].copy()
     mt = report["masks"]["test"].copy()
 
-    # TODO mask val and test with their mask
     pv[~mv] = np.nan
     tv[~mv] = np.nan
     pt[~mt] = np.nan
     tt[~mt] = np.nan
 
-    repl = np.nan
+    pv_ = pv.copy()
+    tv_ = tv.copy()
+    pt_ = pt.copy()
+    tt_ = tt.copy()
 
-    if False:
-        mask_val = tv < 2
-        tv[mask_val] = repl
-        pv[mask_val] = repl
-        mask_test = tt < 2
-        tt[mask_test] = repl
-        pt[mask_test] = repl
+
+    do_min = False
+    if do_min:
+        repl = np.nan
+        thresh = 5
+        mask_val = tv_ < thresh
+        tv_[mask_val] = repl
+        pv_[mask_val] = repl
+        mask_test = tt_ < thresh
+        tt_[mask_test] = repl
+        pt_[mask_test] = repl
+        mae_val_, rmse_val_, bias_val_, r2_val_ = get_metrics(pv_, tv_, verbose=False)
+        mae_test_, rmse_test_, bias_test_, r2_test_ = get_metrics(pt_, tt_, verbose=False)
 
     mae_val, rmse_val, bias_val, r2_val = get_metrics(pv, tv, verbose=False)
     mae_test, rmse_test, bias_test, r2_test = get_metrics(pt, tt, verbose=False)
@@ -119,8 +126,25 @@ def write_metrics_to_df(report, sites, cfg, df=None):
         "Bias [m] (Val)": round(bias_val, 2),
         "Bias [m] (Test)": round(bias_test, 2),
         "R2 [-] (Val)": round(r2_val, 2),
-        "R2 [-] (Test)": round(r2_test, 2)
+        "R2 [-] (Test)": round(r2_test, 2),
+        "---": "---",
     }
+    if do_min:
+            metrics.update(
+            {
+            "--": "--",
+            f"MAE [m] (Val, >{thresh}m)": round(mae_val_, 2),
+            f"MAE [m] (Test, >{thresh}m)": round(mae_test_, 2),
+            f"RMSE [m] (Val, >{thresh}m)": round(rmse_val_, 2),
+            f"RMSE [m] (Test, >{thresh}m)": round(rmse_test_, 2),
+            f"Bias [m] (Val, >{thresh}m)": round(bias_val_, 2),
+            f"Bias [m] (Test, >{thresh}m)": round(bias_test_, 2),
+            f"R2 [-] (Val, >{thresh}m)": round(r2_val_, 2),
+            f"R2 [-] (Test, >{thresh}m)": round(r2_test_, 2)
+            }
+        )
+            
+    metrics.update(global_config)
 
     if df is None:
         df = pd.DataFrame([metrics])
@@ -399,7 +423,7 @@ def plot_compact_heatmap_val_test(report, title="Heatmap of Ground-Truth vs Pred
     #plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.show()
 
-def plot_error_over_frequency(y_val_true, y_val_pred, y_test_true, y_test_pred, bins=50):
+def plot_error_over_frequency(report, bins=80, title = "Error vs. GT Distribution"):
     """
     Plot the error distribution over frequency for validation and test sets.
 
@@ -410,6 +434,9 @@ def plot_error_over_frequency(y_val_true, y_val_pred, y_test_true, y_test_pred, 
     - y_test_pred: np.ndarray, predicted values for test set
     - bins: int, number of bins for histogram
     """
+
+    y_val_true, y_val_pred, y_test_true, y_test_pred = report["targets"]["validation"].copy(), report["predictions"]["validation"].copy(), report["targets"]["test"].copy(), report["predictions"]["test"].copy()
+    
     val_errors = y_val_pred - y_val_true
     test_errors = y_test_pred - y_test_true
     from scipy import stats
@@ -472,6 +499,7 @@ def plot_error_over_frequency(y_val_true, y_val_pred, y_test_true, y_test_pred, 
     )
     axes[1].legend(loc='lower left')
 
+    fig.suptitle(title)
     plt.tight_layout()
     plt.show()
 

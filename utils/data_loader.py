@@ -50,6 +50,8 @@ def build_site_data(cfg, site_paths):
     # Aux inputs
     for aux in cfg["aux_inputs"]:
         arr = load_raster(site_paths[aux])  # (1, H, W) or (H, W)
+        if aux == "DEM":
+            arr = arr / 2000.0
         stack.append(arr)
 
     X = np.concatenate(stack, axis=0)  # (C, H, W)
