@@ -6,20 +6,22 @@ from tqdm import trange
 import torch.nn as nn
 import os
 import json
+from datetime import datetime
 
 # Central hyperparameter config
 # raytune / keras 
 global_config = {
     'patch_size': 32,
     'num_bands': 15,        # change based on input (13+1 for fmask, +1 for mask channel)
-    'batch_size': 32,
+    'batch_size': 48,
     'learning_rate': 8e-4,
     'weight_decay': 2e-4,
     'scheduler_type': 'ReduceLROnPlateau',
     'scheduler_patience':15,
     'scheduler_factor':0.5,
     'scheduler_min_lr':1e-6,
-    'epochs': 250,
+    'early_stopping_patience': 40,
+    'epochs': 500,
     'huber_delta': 1.35,
     'device':  'mps' if torch.backends.mps.is_available() else 'cpu'
 }
@@ -150,11 +152,40 @@ def compute_losses(outputs, y_batch, mask, cfg):
             masked_ce = ce * mask_slice.squeeze(1)
             loss = masked_ce.sum() / mask_slice.sum().clamp(min=1)
         elif out_cfg["loss"] == "kl":
+            # Discretize the continuous target into bins and convert both prediction and target to probability distributions
+            num_bins = out_cfg.get("num_bins", 25)
+            min_val = out_cfg.get("min_val", 0.0)
+            max_val = out_cfg.get("max_val", 50.0)
+
+            def bin_targets(target, num_bins, min_val, max_val):
+                # target: (N, 1, H, W)
+                bins = torch.linspace(min_val, max_val, num_bins + 1, device=target.device)
+                # Digitize returns bin indices (0 to num_bins-1)
+                target_flat = target.view(-1)
+                bin_indices = torch.bucketize(target_flat, bins[:-1], right=False)
+                # One-hot encode
+                target_binned = torch.zeros(target_flat.size(0), num_bins, device=target.device)
+                target_binned.scatter_(1, bin_indices.unsqueeze(1).clamp(max=num_bins-1), 1)
+                # Reshape back to (N, H, W, num_bins)
+                target_binned = target_binned.view(*target.shape[:-1], target.shape[-2], target.shape[-1], num_bins)
+                # Move bin dim to channel position: (N, num_bins, H, W)
+                target_binned = target_binned.permute(0, 4, 2, 3, 1).squeeze(-1)
+                return target_binned
+
+            # Output slice should have shape (N, num_bins, H, W)
+            # If output_slice is (N, 1, H, W), expand to num_bins via a head in the model
+            if output_slice.shape[1] != num_bins:
+                raise ValueError(f"Output channels ({output_slice.shape[1]}) do not match num_bins ({num_bins}).")
+
+            target_binned = bin_targets(target_slice, num_bins, min_val, max_val)
+            # KLDiv expects log-probabilities for input, probabilities for target
             kld = torch.nn.functional.kl_div(
                 torch.nn.functional.log_softmax(output_slice, dim=1),
-                torch.nn.functional.softmax(target_slice, dim=1),
+                torch.nn.functional.softmax(target_binned, dim=1),
                 reduction='none'
             )
+            masked_kld = kld * mask_slice
+            loss = masked_kld.sum() / mask_slice.sum().clamp(min=1)
             masked_kld = kld * mask_slice
             loss = masked_kld.sum() / mask_slice.sum().clamp(min=1)
         else:
@@ -163,7 +194,24 @@ def compute_losses(outputs, y_batch, mask, cfg):
         start_idx += out_ch        
     return sum(losses)
 
+class EarlyStopping:
+    def __init__(self, patience=10, verbose=False):
+        self.patience = patience
+        self.verbose = verbose
+        self.counter = 0
+        self.best_loss = None
+        self.early_stop = False
 
+    def step(self, val_loss):
+        if self.best_loss is None or val_loss < self.best_loss:
+            self.best_loss = val_loss
+            self.counter = 0
+        else:
+            self.counter += 1
+            if self.verbose:
+                print(f"EarlyStopping counter: {self.counter} out of {self.patience}")
+            if self.counter >= self.patience:
+                self.early_stop = True
 
 def train_model(model, train_loader, val_loader, cfg, global_config):
     device = global_config['device']
@@ -171,24 +219,26 @@ def train_model(model, train_loader, val_loader, cfg, global_config):
 
     optimizer = torch.optim.Adam(model.parameters(), lr=global_config['learning_rate'], weight_decay=global_config['weight_decay'])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=global_config['scheduler_patience'], factor=global_config['scheduler_factor'], min_lr=global_config['scheduler_min_lr'])
+    early_stopping = EarlyStopping(patience=global_config['early_stopping_patience'], verbose=False)
 
     #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=global_config['epochs'], eta_min=1e-6)
 
     # build loss functions from config
-    loss_fns = {}
-    for name, out_cfg in cfg["outputs"].items():
-        if out_cfg["loss"] == "huber":
-            loss_fns[name] = masked_huber_loss #torch.nn.SmoothL1Loss()
-        elif out_cfg["loss"] == "bce":
-            loss_fns[name] = torch.nn.BCEWithLogitsLoss()
-        elif out_cfg["loss"] == "crossentropy":
-            loss_fns[name] = torch.nn.CrossEntropyLoss()
-        elif out_cfg["loss"] == "kl":
-            loss_fns[name] = torch.nn.KLDivLoss(reduction="batchmean")
-        else:
-            raise ValueError(f"Unknown loss {out_cfg['loss']}")
+    # loss_fns = {}
+    # for name, out_cfg in cfg["outputs"].items():
+    #     if out_cfg["loss"] == "huber":
+    #         loss_fns[name] = masked_huber_loss #torch.nn.SmoothL1Loss()
+    #     elif out_cfg["loss"] == "bce":
+    #         loss_fns[name] = torch.nn.BCEWithLogitsLoss()
+    #     elif out_cfg["loss"] == "crossentropy":
+    #         loss_fns[name] = torch.nn.CrossEntropyLoss()
+    #     elif out_cfg["loss"] == "kl":
+    #         loss_fns[name] = torch.nn.KLDivLoss(reduction="batchmean")
+    #     else:
+    #         raise ValueError(f"Unknown loss {out_cfg['loss']}")
 
-    best_val_loss = float('inf')
+    # best_val_loss = float('inf')
+
     logs = {'train_loss': [], 'val_loss': []}
 
     for epoch in trange(global_config['epochs'],desc="Epochs"):
@@ -223,6 +273,10 @@ def train_model(model, train_loader, val_loader, cfg, global_config):
         logs['val_loss'].append(avg_val_loss)
 
         scheduler.step(avg_val_loss)
+        early_stopping.step(avg_val_loss)
+        if early_stopping.early_stop:
+            print(f"Early stopping triggered at epoch {epoch+1}")
+            break
 
         # if avg_val_loss < best_val_loss:
         #     best_val_loss = avg_val_loss
@@ -232,24 +286,25 @@ def train_model(model, train_loader, val_loader, cfg, global_config):
 
     return model, logs
 
-# def denorm_chm(chm, params):
-#     """
-#     Denormalizes the canopy height model (CHM) using provided normalization parameters.
-    
-#     Args:
-#         chm (np.ndarray): Normalized CHM array.
-#         params (dict): Dictionary containing 'mean' and 'std' for denormalization.
-    
-#     Returns:
-#         np.ndarray: Denormalized CHM array.
-#     """
-#     mean = params['mu']
-#     std = params['std']
-#     return chm * std + mean
 
-def save_results(model, val_loader, test_loader, normparams, logs, cfg):
+def save_results(model, val_loader, test_loader, normparams, logs, cfg, run_id=None):
 
-    out_dir = os.path.join("../results/train", cfg['exp'])
+    if run_id is None:
+        today = datetime.now().strftime("%y%m%d")
+        idx = 0
+
+        # Check existing folders
+        results_dir = "../results"
+        if os.path.exists(results_dir):
+            folders = [f for f in os.listdir(results_dir) if f.startswith(today)]
+            if folders:
+                # Extract indices from existing folders and get max
+                indices = [int(f.split('_')[1]) for f in folders]
+                idx = max(indices) + 1
+
+        run_id = f"{today}_{idx}"
+
+    out_dir = os.path.join("../results", run_id, 'train', cfg['exp'])
     os.makedirs(out_dir, exist_ok=True)
 
     # Save model weights
@@ -320,11 +375,15 @@ def get_predictions_and_targets(loader, model, normparams):
     targets = denorm_chm(targets, normparams)
     return preds, targets, masklayer
 
-def load_results(exp_dir):
+def load_results(exp_dir, run_id=None):
     """
     Loads model weights, logs, and cfg from the experiment results folder.
     """
-    out_dir = os.path.join("../results/train", exp_dir)
+    if run_id is not None:
+        out_dir = os.path.join("../results", run_id, 'train', exp_dir)
+    else:
+        out_dir = os.path.join("../results/train", exp_dir)
+
     model_weights = torch.load(os.path.join(out_dir, "model.pth"))
     with open(os.path.join(out_dir, "logs.json"), "r") as f:
         logs = json.load(f)
@@ -332,12 +391,15 @@ def load_results(exp_dir):
         cfg = json.load(f)
     return model_weights, logs, cfg
 
-def load_np_stacks(exp_dir):
+def load_np_stacks(exp_dir, run_id=None):
     """
     Loads prediction and target numpy arrays from the experiment results folder.
     Returns preds_val, targets_val, preds_test, targets_test as numpy arrays.
     """
     out_dir = os.path.join("../results/train", exp_dir)
+    if run_id is not None:
+        out_dir = os.path.join("../results", run_id, 'train', exp_dir)
+
     val_npz = np.load(os.path.join(out_dir, "val_preds_targets.npz"))
     test_npz = np.load(os.path.join(out_dir, "test_preds_targets.npz"))
     preds_val = val_npz["preds_val"]
@@ -347,3 +409,4 @@ def load_np_stacks(exp_dir):
     maskval = val_npz["maskval"]
     masktest = test_npz["masktest"]
     return preds_val, targets_val, preds_test, targets_test, maskval, masktest
+

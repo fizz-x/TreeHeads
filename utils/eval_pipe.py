@@ -7,7 +7,7 @@ import json
 from sklearn.metrics import mean_absolute_error
 import torch
 
-def plot_val_loss(train_losses, val_losses, title="Training and Validation Loss"):
+def plot_val_loss(train_losses, val_losses, title="Training and Validation Loss", report=None):
     """
     Plot training and validation loss over epochs.
     
@@ -26,7 +26,12 @@ def plot_val_loss(train_losses, val_losses, title="Training and Validation Loss"
     plt.legend()
     plt.title(title)
     plt.grid(True)
-    plt.show()
+    #if report is not None:
+        # Save BEFORE plt.show(), so the figure is not cleared
+        #save_plot(plt.gcf(), "train_val_loss", report)
+    #plt.show()
+    return plt.gcf()
+
 
 def load_normalization_params(json_path):
     """
@@ -114,13 +119,15 @@ def write_metrics_to_df(report, sites, global_config, df=None):
         mae_val_, rmse_val_, bias_val_, r2_val_ = get_metrics(pv_, tv_, verbose=False)
         mae_test_, rmse_test_, bias_test_, r2_test_ = get_metrics(pt_, tt_, verbose=False)
 
-    mae_val, rmse_val, bias_val, r2_val = get_metrics(pv, tv, verbose=False)
-    mae_test, rmse_test, bias_test, r2_test = get_metrics(pt, tt, verbose=False)
+    mae_val, nmae_val, rmse_val, bias_val, r2_val = get_metrics(pv, tv, verbose=False)
+    mae_test, nmae_test, rmse_test, bias_test, r2_test = get_metrics(pt, tt, verbose=False)
 
     metrics = {
         "Experiment": experiment_name,
         "MAE [m] (Val)": round(mae_val, 2),
         "MAE [m] (Test)": round(mae_test, 2),
+        "nMAE [%] (Val)": round(nmae_val, 2),
+        "nMAE [%] (Test)": round(nmae_test, 2),
         "RMSE [m] (Val)": round(rmse_val, 2),
         "RMSE [m] (Test)": round(rmse_test, 2),
         "Bias [m] (Val)": round(bias_val, 2),
@@ -168,17 +175,35 @@ def get_metrics(all_preds, all_targets, verbose = True):
     preds_flat = preds_flat[mask]
     targets_flat = targets_flat[mask]
 
-    mae = mean_absolute_error(targets_flat, preds_flat)
+    mae_abs = mean_absolute_error(targets_flat, preds_flat)
     rmse = np.sqrt(np.mean((targets_flat - preds_flat) ** 2))
     r2 = 1 - np.sum((targets_flat - preds_flat) ** 2) / np.sum((targets_flat - np.mean(targets_flat)) ** 2)
     bias = np.mean(preds_flat - targets_flat)
+    # Calculate normalized MAE as percentage using binning (excluding 0-2m range)
+    bins = np.arange(2, 60, 2)  # Create bins from 2m to 60m in 2m steps
+    bin_indices = np.digitize(targets_flat, bins) - 1
+    mae_percent_per_bin = np.zeros(len(bins))
+    counts_per_bin = np.zeros(len(bins))
+    
+    for i in range(len(bins)):
+        bin_mask = bin_indices == i
+        if np.sum(bin_mask) > 0:  # Only calculate if bin has values
+            # Calculate MAE as percentage of the bin center value
+            bin_center = bins[i] + 1  # Center of the 2m bin
+            mae = mean_absolute_error(targets_flat[bin_mask], preds_flat[bin_mask])
+            mae_percent_per_bin[i] = (mae / bin_center) * 100
+            counts_per_bin[i] = np.sum(bin_mask)
+    
+    # Calculate normalized MAE as average percentage across valid bins
+    valid_bins = counts_per_bin > 0
+    nMAE = np.average(mae_percent_per_bin[valid_bins], weights=counts_per_bin[valid_bins])
 
     #print(f"[DEBUG] - Length all_preds: {len(all_preds)}; len all_targets: {len(all_targets)}, shape: {all_preds.shape}")
     if verbose:
         print("Metrics:")
-        print(f"\tMAE: \t{mae:.2f}m\n \tRMSE: \t{rmse:.2f}m\n \tBias: \t{bias:.2f}m\n \tR2: \t{r2:.2f}") 
+        print(f"\tMAE: \t{mae_abs:.2f}m\n \tRMSE: \t{rmse:.2f}m\n \tBias: \t{bias:.2f}m\n \tR2: \t{r2:.2f}") 
         print("----------------------------------------------")
-    return mae, rmse, bias, r2
+    return mae_abs, nMAE, rmse, bias, r2
 
 def print_all_metrics(report, sites, cfg, above2m = False):
     """
@@ -421,7 +446,9 @@ def plot_compact_heatmap_val_test(report, title="Heatmap of Ground-Truth vs Pred
     fig.colorbar(hb, ax=axes, orientation='vertical', fraction=0.03, pad=0.04, label='Counts',)
     fig.suptitle(title)
     #plt.tight_layout(rect=[0, 0, 1, 0.96])
-    plt.show()
+    # save_plot(plt.gcf(), "heatmap", report)
+    # plt.show()
+    return fig
 
 def plot_error_over_frequency(report, bins=80, title = "Error vs. GT Distribution"):
     """
@@ -501,7 +528,9 @@ def plot_error_over_frequency(report, bins=80, title = "Error vs. GT Distributio
 
     fig.suptitle(title)
     plt.tight_layout()
-    plt.show()
+    # save_plot(plt.gcf(), "error_vs_gt", report)
+    # plt.show()
+    return fig
 
 
 def plot_eval_report(train_losses, val_losses, model, val_loader, test_loader, json_path=None, config=None):
@@ -517,6 +546,7 @@ def plot_eval_report(train_losses, val_losses, model, val_loader, test_loader, j
     """
     import utils.eval as eval
     from utils.eval import plot_heatmap, plot_compact_heatmap_val_test, denorm_model_json, plot_real_pred_delta
+
     
     #print("VALIDATION METRICS")
     predictions, targets = denorm_model_json(model, val_loader, json_path, config=config)
@@ -580,8 +610,17 @@ def ziptheresults(exp_name, model_weights, logs, cfg, preds_val, targets_val, pr
 
     return report
 
+def save_plot(fig, plotname, report, run_id=None):
+    if run_id is None:
+        outdir = os.path.join('../results', 'eval')
+    else:
+        outdir = os.path.join('../results', run_id, 'eval')
+    os.makedirs(outdir, exist_ok=True)
+    fname = f"{report['experiment_name']}+{plotname}.png"
+    fig.savefig(os.path.join(outdir, fname), bbox_inches='tight')
+    plt.close(fig)
 
-def printout_eval_report(report, sites, cfg):
+def printout_eval_report(report, sites, cfg, run_id):
     """
     Print the evaluation report in a readable format.
     """
@@ -589,9 +628,34 @@ def printout_eval_report(report, sites, cfg):
     #print("-------------------------------")
     #print(f"Experiment Name: \t{report['experiment_name']}")
     #print_all_metrics(report,sites,cfg,above2m=False)
-    plot_compact_heatmap_val_test(report, title=f"{report['experiment_name']} - Heatmap of Ground-Truth vs Predicted Canopy Height\n")
-    #plot_error_over_frequency()
-    #plot_val_loss(report["logs"]["train_loss"], report["logs"]["val_loss"], title=f"{report['experiment_name']} - Training and Validation Loss")
-    #print("-------------------------------")
+    #plot_compact_heatmap_val_test(report, title=f"{report['experiment_name']} - Heatmap of Ground-Truth vs Predicted Canopy Height\n")
+    #plot_error_over_frequency(report, bins=80, title = f"{report['experiment_name']} - Error vs. GT Distribution")
+    # Save figures to disk instead of showing
+    fig = plot_val_loss(report["logs"]["train_loss"], report["logs"]["val_loss"], title=f"{report['experiment_name']} - Training and Validation Loss", report=report)
+    save_plot(fig, "train_val_loss", report, run_id)
+    # Heatmap
+    fig = plot_compact_heatmap_val_test(report, title=f"{report['experiment_name']} - Heatmap of Ground-Truth vs Predicted Canopy Height\n")
+    save_plot(fig, "heatmap", report, run_id)
+    # Error vs GT Distribution
+    fig = plot_error_over_frequency(report, bins=80, title = f"{report['experiment_name']} - Error vs. GT Distribution")
+    save_plot(fig, "error_vs_gt", report, run_id)
 
 
+
+def save_df_result_to_csv(df_result, run_id, override=True):
+    # Save the transposed DataFrame to a CSV file with optional override
+    path = f"../results/{run_id}/eval/results_summary.csv"
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    if override:
+        df_result.transpose().to_csv(path)
+        print("Results saved to", path)
+    else:
+        base, ext = os.path.splitext(path)
+        suffix = 1
+        new_path = f"{base}_{suffix}{ext}"
+        while os.path.exists(new_path):
+            suffix += 1
+            new_path = f"{base}_{suffix}{ext}"
+        df_result.transpose().to_csv(new_path)
+        print("Results saved to", new_path)
