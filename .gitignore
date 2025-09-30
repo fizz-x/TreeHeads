@@ -4,6 +4,12 @@ training/lightning_logs/
 #stacked_multiband.tif
 # Ignore all .tif files
 *.tif
+/results/
+*.pth
+*.npz
+*.png
+*cfg.json
+*logs.json
 10_Data/
 .DS_Store
 .ipynb_checkpoints/

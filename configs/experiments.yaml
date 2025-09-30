@@ -1,4 +1,4 @@
-baseline:
+01_baseline:
   spectral:
     seasons: ["summer"]
     quantiles: ["Q50"]
@@ -9,7 +9,7 @@ baseline:
       target: "CHM_norm"
       loss: huber
 
-pixel_composites:
+02_pixel_composites:
   spectral:
     seasons: ["summer"]
     quantiles: ["Q25","Q50","Q75"]
@@ -20,7 +20,7 @@ pixel_composites:
       target: "CHM_norm"
       loss: huber
 
-seasonal_composites:
+03_seasonal_composites:
   spectral:
     seasons: ["spring","summer","autumn"]
     quantiles: ["Q50"]
@@ -31,7 +31,7 @@ seasonal_composites:
       target: "CHM_norm"
       loss: huber
 
-pixel_and_seasonal:
+04_pixel_and_seasonal_comp:
   spectral:
     seasons: ["spring","summer","autumn"]
     quantiles: ["Q25","Q50","Q75"]
@@ -42,7 +42,18 @@ pixel_and_seasonal:
       target: "CHM_norm"
       loss: huber
 
-all_aux_data:
+05_support_fmask_dlt:
+  spectral:
+    seasons: ["spring","summer","autumn"]
+    quantiles: ["Q25","Q50","Q75"]
+  aux_inputs: ["FMASK","DLT"]
+  strategy: all_in_model
+  outputs:
+    canopy_height:
+      target: "CHM_norm"
+      loss: huber
+
+06_support_fmask_dlt_dem:
   spectral:
     seasons: ["spring","summer","autumn"]
     quantiles: ["Q25","Q50","Q75"]
@@ -53,12 +64,12 @@ all_aux_data:
       target: "CHM_norm"
       loss: huber
 
-mid_level_learning:
+07_aux_task:
   spectral:
     seasons: ["spring","summer","autumn"]
     quantiles: ["Q25","Q50","Q75"]
   aux_inputs: []         # not stacked
-  strategy: mid_level
+  strategy: aux_task
   outputs:
     canopy_height:
       target: "CHM_norm"
@@ -77,6 +88,6 @@ mid_level_learning:
     #   loss: kl
     #   weight: 0.5
 
-pretrained_encoder:
+08_pretrained_encoder:
   inherits: mid_level_learning
   pretrained: true
