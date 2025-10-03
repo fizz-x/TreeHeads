@@ -32,7 +32,6 @@ def plot_val_loss(train_losses, val_losses, title="Training and Validation Loss"
     #plt.show()
     return plt.gcf()
 
-
 def load_normalization_params(json_path):
     """
     Load normalization parameters from a JSON file.
@@ -532,7 +531,6 @@ def plot_error_over_frequency(report, bins=80, title = "Error vs. GT Distributio
     # plt.show()
     return fig
 
-
 def plot_eval_report(train_losses, val_losses, model, val_loader, test_loader, json_path=None, config=None):
     """
     Plot evaluation report including loss curves and heatmap of true vs predicted values.
@@ -640,11 +638,9 @@ def printout_eval_report(report, sites, cfg, run_id):
     fig = plot_error_over_frequency(report, bins=80, title = f"{report['experiment_name']} - Error vs. GT Distribution")
     save_plot(fig, "error_vs_gt", report, run_id)
 
-
-
 def save_df_result_to_csv(df_result, run_id, override=True):
     # Save the transposed DataFrame to a CSV file with optional override
-    path = f"../results/{run_id}/eval/results_summary.csv"
+    path = f"../results/{run_id}/metrics/results_summary.csv"
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
     if override:
