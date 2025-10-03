@@ -251,7 +251,7 @@ def print_all_metrics(report, sites, cfg, above2m = False):
 
     print(df.to_string(index=False, header = True, col_space=8, float_format="{:.2f}".format),)
 
-def plot_real_pred_delta(model, dataloader, num_samples=5, device='cpu', json_path=None):
+def plot_real_pred_delta(report, num_samples=5, device='cpu'):
     """
     Plot S2 RGB, real ALS patches, model predictions, and their delta.
 
@@ -262,68 +262,68 @@ def plot_real_pred_delta(model, dataloader, num_samples=5, device='cpu', json_pa
     - num_samples: int, number of samples to plot
     - device: torch device
     """
-    model.eval()
+    rgb = report["rgb"]["test"].copy()
+    preds = report["predictions"]["test"].copy()
+    targets = report["targets"]["test"].copy()
+    #model = report["model_weights"].copy()
+    mask = report["masks"]["test"].copy()
     shown = 0
-    mu, std = load_normalization_params(json_path)
     
+    for i in range(len(rgb)):
+        if shown >= num_samples:
+            break
+            
+        # Get sample
+        rgb_sample = rgb[i, [2,1,0]] # Assuming RGB channels are last 3
+        rgb_sample = (rgb_sample - rgb_sample.min()) / (rgb_sample.max() - rgb_sample.min() + 1e-6)
+        rgb_sample = np.transpose(rgb_sample, (1, 2, 0))
+        
+        pred_sample = preds[i]
+        target_sample = targets[i] 
+        mask_sample = mask[i]
+        
+        # Apply mask
+        pred_sample = np.where(mask_sample, pred_sample, np.nan)
+        target_sample = np.where(mask_sample, target_sample, np.nan)
+        delta = pred_sample - target_sample
+        delta = np.where(mask_sample, delta, np.nan)
 
-    with torch.no_grad():
-        for X_batch, y_batch, _ in dataloader:
-            X_batch = X_batch.to(device)
-            #X_batch = X_batch.reshape([])
-            y_batch = y_batch.cpu().numpy()
-            preds = model(X_batch).cpu().numpy()
-            masks = _ #dataloader.dataset.fmask
-            # Denormalize 
-            y_batch = denormalize(torch.from_numpy(y_batch), mu, std).numpy()
-            preds = denormalize(torch.from_numpy(preds), mu, std).numpy()
-
-            for i in range(X_batch.shape[0]):
-                if shown >= num_samples:
-                    return
-                # S2 RGB: channels 10, 3, 0 (B, G, R) for Sentinel-2
-                rgb = X_batch[i, [10, 3, 0]].cpu().numpy()
-                rgb = (rgb - rgb.min()) / (rgb.max() - rgb.min() + 1e-6)
-                rgb = np.transpose(rgb, (1, 2, 0))
-                gt = y_batch[i, 0] if y_batch.ndim == 4 else y_batch[i]
-                pred = preds[i, 0] if preds.ndim == 4 else preds[i]
-                mask = masks[i, 0] if masks.ndim == 4 else masks[i]
-                delta = pred - gt
-                # Apply mask to gt and pred
-                gt = np.where(mask, gt, np.nan)
-                pred = np.where(mask, pred, np.nan)
-                delta = np.where(mask, delta, np.nan)
-                plt.figure(figsize=(15, 3))
-                # S2 RGB
-                plt.subplot(1, 4, 1)
-                plt.imshow(rgb)
-                plt.title("S2 RGB")
-                plt.axis('off')
-                # ALS GT
-                plt.subplot(1, 4, 2)
-                plt.title("ALS Ground Truth [m]")
-                plt.axis('off')
-                min = np.nanmin(gt)
-                max = np.nanmax(gt)*0.95
-                im = plt.imshow(gt, cmap='viridis', vmin=min, vmax=max)  
-                plt.colorbar(im, ax=plt.gca())  
-                # pred 
-                plt.subplot(1, 4, 3)
-                im = plt.imshow(pred, cmap='viridis',vmin=min, vmax=max)
-                plt.colorbar(im, ax=plt.gca())  
-                plt.title("Model Prediction [m]")
-                plt.axis('off')
- 
-                plt.subplot(1, 4, 4)
-                vmax = np.nanmax(np.abs(delta))
-                #vmax = 1
-                imd = plt.imshow(delta, cmap='bwr', vmin=-vmax, vmax=vmax)
-                plt.title("Error = Prediction - GT [m]")
-                plt.axis('off')
-                plt.colorbar(imd, ax=plt.gca(), location='right')
-                plt.tight_layout()
-                plt.show()
-                shown += 1
+        # Create plot
+        plt.figure(figsize=(15, 3))
+        
+        # S2 RGB
+        plt.subplot(1, 4, 1)
+        plt.imshow(rgb_sample)
+        plt.title("S2 RGB")
+        plt.axis('off')
+        
+        # ALS Ground Truth
+        plt.subplot(1, 4, 2)
+        plt.title("ALS Ground Truth [m]")
+        plt.axis('off')
+        min_val = np.nanmin(target_sample)
+        max_val = np.nanmax(target_sample)*0.95
+        im = plt.imshow(target_sample, cmap='viridis', vmin=min_val, vmax=max_val)
+        plt.colorbar(im, ax=plt.gca())
+        
+        # Prediction
+        plt.subplot(1, 4, 3)
+        im = plt.imshow(pred_sample, cmap='viridis', vmin=min_val, vmax=max_val)
+        plt.colorbar(im, ax=plt.gca())
+        plt.title("Model Prediction [m]")
+        plt.axis('off')
+        
+        # Delta/Error
+        plt.subplot(1, 4, 4)
+        vmax = np.nanmax(np.abs(delta))
+        imd = plt.imshow(delta, cmap='bwr', vmin=-vmax, vmax=vmax)
+        plt.title("Error = Prediction - GT [m]")
+        plt.axis('off')
+        plt.colorbar(imd, ax=plt.gca(), location='right')
+        
+        plt.tight_layout()
+        plt.show()
+        shown += 1
                 #print(min(delta.flatten()), max(delta.flatten()))
 # plot y vs. preds as heatmap
 def plot_heatmap(y_true, y_pred, title="Heatmap of True vs Predicted"):
@@ -583,7 +583,7 @@ def plot_eval_report(train_losses, val_losses, model, val_loader, test_loader, j
     print("-------------------------------")
     print("Evaluation report completed.")
 
-def ziptheresults(exp_name, model_weights, logs, cfg, preds_val, targets_val, preds_test, targets_test, maskval, masktest):
+def ziptheresults(exp_name, model_weights, logs, cfg, preds_val, targets_val, preds_test, targets_test, maskval, masktest, rgb_test):
     """
     Compile a new evaluation report for the given experiment.
     """
@@ -603,6 +603,10 @@ def ziptheresults(exp_name, model_weights, logs, cfg, preds_val, targets_val, pr
         "masks": {
             "validation": maskval[:,0,:,:],
             "test": masktest[:,0,:,:]
+        },
+        "rgb": {
+            #"validation": rgb_val,
+            "test": rgb_test
         }
     }
 

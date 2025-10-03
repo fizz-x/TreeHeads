@@ -21,7 +21,7 @@ global_config = {
     'scheduler_factor':0.5,
     'scheduler_min_lr':1e-6,
     'early_stopping_patience': 40,
-    'epochs': 500,
+    'epochs': 50,
     'huber_delta': 1.35,
     'device':  'mps' if torch.backends.mps.is_available() else 'cpu'
 }
@@ -53,7 +53,27 @@ class S2CanopyHeightDataset(Dataset):
         total_pixels = self.mask.numel()
         valid_pixels = self.mask.sum().item()
         return valid_pixels / total_pixels
-
+    def getRGB(self, idx):
+        # Assumes bands 3, 2, 1 correspond to R, G, B respectively (0-indexed)
+        RGB_indices = [10, 3, 0]  # basic setup 
+        max_aux_layer = 4 
+        #(seasons*quantiles*bands, H, W) - seasons can be 3 dim or 1, quantiles 3 or 1. make sure to select the right bands for RGB
+        if self.X.shape[1] < 13:
+            raise ValueError("Dataset does not have enough bands to extract RGB.")
+        elif self.X.shape[1] <= 13 + max_aux_layer:
+            RGB_indices = RGB_indices
+        elif self.X.shape[1] <= 39 + max_aux_layer:
+            RGB_indices = [x + 13 for x in [10, 3, 0]]  # Adjust if necessary based on actual band order
+        elif self.X.shape[1] == 117 + max_aux_layer:
+            RGB_indices = [x + 13*4 for x in [10, 3, 0]]  # Adjust if necessary based on actual band order
+        rgb = self.X[idx, RGB_indices, :, :]  # (3, 32, 32)
+        # Normalize to [0, 1] for visualization
+        rgb_no_nan = torch.nan_to_num(rgb, nan=float('-inf'))
+        rgb_min = torch.min(rgb_no_nan)
+        rgb_max = torch.max(rgb_no_nan)
+        rgb = (rgb - rgb_min) / (rgb_max - rgb_min + 1e-6)  # Avoid division by zero
+        return rgb.to("cpu").numpy()
+    
     def __getitem__(self, idx):
         x = self.X[idx]                         # (num_bands, 32, 32)
         m = self.mask[idx].float()             # (1, 32, 32)
@@ -320,6 +340,9 @@ def save_results(model, val_loader, test_loader, normparams, logs, cfg, run_id=N
     preds_val, targets_val, maskval = get_predictions_and_targets(val_loader, model, normparams)
     preds_test, targets_test, masktest = get_predictions_and_targets(test_loader, model, normparams)
 
+    rgb_test = np.stack([test_loader.dataset.getRGB(i) for i in range(len(test_loader.dataset))], axis=0)
+    np.savez(os.path.join(out_dir, "test_rgb.npz"), rgb_test=rgb_test)
+
     # Zip predictions and targets for val/test sets and save as .npz files
     np.savez(os.path.join(out_dir, "val_preds_targets.npz"), preds_val=preds_val, targets_val=targets_val, maskval=maskval)
     np.savez(os.path.join(out_dir, "test_preds_targets.npz"), preds_test=preds_test, targets_test=targets_test, masktest=masktest)
@@ -402,11 +425,16 @@ def load_np_stacks(exp_dir, run_id=None):
 
     val_npz = np.load(os.path.join(out_dir, "val_preds_targets.npz"))
     test_npz = np.load(os.path.join(out_dir, "test_preds_targets.npz"))
+    rgb_npz = np.load(os.path.join(out_dir, "test_rgb.npz")) if "test_rgb.npz" in os.listdir(out_dir) else None
+    if rgb_npz is None:
+        rgb_test = None
+    else:
+        rgb_test = rgb_npz["rgb_test"]
     preds_val = val_npz["preds_val"]
     targets_val = val_npz["targets_val"]
     preds_test = test_npz["preds_test"]
     targets_test = test_npz["targets_test"]
     maskval = val_npz["maskval"]
     masktest = test_npz["masktest"]
-    return preds_val, targets_val, preds_test, targets_test, maskval, masktest
+    return preds_val, targets_val, preds_test, targets_test, maskval, masktest, rgb_test
 
