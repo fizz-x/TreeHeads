@@ -6,6 +6,9 @@ import matplotlib.pyplot as plt
 import json
 from sklearn.metrics import mean_absolute_error
 import torch
+import seaborn as sns
+from matplotlib import cm
+import glob
 
 def plot_val_loss(train_losses, val_losses, title="Training and Validation Loss", report=None):
     """
@@ -105,7 +108,7 @@ def write_metrics_to_df(report, sites, global_config, df=None):
     tt_ = tt.copy()
 
 
-    do_min = False
+    do_min = True
     if do_min:
         repl = np.nan
         thresh = 5
@@ -115,8 +118,8 @@ def write_metrics_to_df(report, sites, global_config, df=None):
         mask_test = tt_ < thresh
         tt_[mask_test] = repl
         pt_[mask_test] = repl
-        mae_val_, rmse_val_, bias_val_, r2_val_ = get_metrics(pv_, tv_, verbose=False)
-        mae_test_, rmse_test_, bias_test_, r2_test_ = get_metrics(pt_, tt_, verbose=False)
+        mae_val_, nmae_val_, rmse_val_, bias_val_, r2_val_ = get_metrics(pv_, tv_, verbose=False)
+        mae_test_, nmae_test_, rmse_test_, bias_test_, r2_test_ = get_metrics(pt_, tt_, verbose=False)
 
     mae_val, nmae_val, rmse_val, bias_val, r2_val = get_metrics(pv, tv, verbose=False)
     mae_test, nmae_test, rmse_test, bias_test, r2_test = get_metrics(pt, tt, verbose=False)
@@ -133,21 +136,20 @@ def write_metrics_to_df(report, sites, global_config, df=None):
         "Bias [m] (Test)": round(bias_test, 2),
         "R2 [-] (Val)": round(r2_val, 2),
         "R2 [-] (Test)": round(r2_test, 2),
-        "---": "---",
+       # "---": "---",
     }
     if do_min:
-            metrics.update(
-            {
-            "--": "--",
-            f"MAE [m] (Val, >{thresh}m)": round(mae_val_, 2),
-            f"MAE [m] (Test, >{thresh}m)": round(mae_test_, 2),
-            f"RMSE [m] (Val, >{thresh}m)": round(rmse_val_, 2),
-            f"RMSE [m] (Test, >{thresh}m)": round(rmse_test_, 2),
-            f"Bias [m] (Val, >{thresh}m)": round(bias_val_, 2),
-            f"Bias [m] (Test, >{thresh}m)": round(bias_test_, 2),
-            f"R2 [-] (Val, >{thresh}m)": round(r2_val_, 2),
-            f"R2 [-] (Test, >{thresh}m)": round(r2_test_, 2)
-            }
+        metrics.update(
+        {
+        f"MAE [m] (Val, >{thresh}m)": round(mae_val_, 2),
+        f"MAE [m] (Test, >{thresh}m)": round(mae_test_, 2),
+        f"RMSE [m] (Val, >{thresh}m)": round(rmse_val_, 2),
+        f"RMSE [m] (Test, >{thresh}m)": round(rmse_test_, 2),
+        f"Bias [m] (Val, >{thresh}m)": round(bias_val_, 2),
+        f"Bias [m] (Test, >{thresh}m)": round(bias_test_, 2),
+        f"R2 [-] (Val, >{thresh}m)": round(r2_val_, 2),
+        f"R2 [-] (Test, >{thresh}m)": round(r2_test_, 2)
+        }
         )
             
     metrics.update(global_config)
@@ -268,14 +270,14 @@ def plot_real_pred_delta(report, num_samples=5, device='cpu'):
     #model = report["model_weights"].copy()
     mask = report["masks"]["test"].copy()
     shown = 0
-    
+
     for i in range(len(rgb)):
         if shown >= num_samples:
             break
             
         # Get sample
         rgb_sample = rgb[i, [2,1,0]] # Assuming RGB channels are last 3
-        rgb_sample = (rgb_sample - rgb_sample.min()) / (rgb_sample.max() - rgb_sample.min() + 1e-6)
+        #rgb_sample = (rgb_sample - rgb_sample.min()) / (rgb_sample.max() - rgb_sample.min() + 1e-6)
         rgb_sample = np.transpose(rgb_sample, (1, 2, 0))
         
         pred_sample = preds[i]
@@ -644,14 +646,20 @@ def printout_eval_report(report, sites, cfg, run_id):
 
 def save_df_result_to_csv(df_result, run_id, override=True):
     # Save the transposed DataFrame to a CSV file with optional override
-    path = f"../results/{run_id}/metrics/results_summary.csv"
+    path = f"../results/{run_id}/metrics/"
+    path_csv = path + "results_summary.csv"
+    path_plt = path + "results_summary.png"
+
     os.makedirs(os.path.dirname(path), exist_ok=True)
+    fig = plot_experiment_metrics_test_only(df_result, printout=False)
 
     if override:
-        df_result.transpose().to_csv(path)
-        print("Results saved to", path)
+        df_result.transpose().to_csv(path_csv)
+        fig.savefig(path_plt, bbox_inches='tight')
+        plt.close(fig)
+        print("Results saved to", path_csv)
     else:
-        base, ext = os.path.splitext(path)
+        base, ext = os.path.splitext(path_csv)
         suffix = 1
         new_path = f"{base}_{suffix}{ext}"
         while os.path.exists(new_path):
@@ -659,3 +667,262 @@ def save_df_result_to_csv(df_result, run_id, override=True):
             new_path = f"{base}_{suffix}{ext}"
         df_result.transpose().to_csv(new_path)
         print("Results saved to", new_path)
+
+def read_multiple_csv_to_df(run_ids):
+    """
+    Read CSV metrics files from multiple run_ids and combine them into one DataFrame.
+    
+    Args:
+        run_ids (list): List of run IDs to process
+        
+    Returns:
+        pd.DataFrame: Combined DataFrame with all metrics
+    """
+    df_list = []
+    for run_id in run_ids:
+        path = f"../results/{run_id}/metrics/"
+        file = os.path.join(path, "results_summary.csv")
+        if os.path.exists(file):
+            df = pd.read_csv(file).transpose()
+            df.columns = df.iloc[0]  # Set first row as column names
+            df = df.iloc[1:]  # Remove first row since it's now column names
+            df_list.append(df)
+            
+    if df_list:
+        df_result = pd.concat(df_list, axis=0, ignore_index=True)
+        # Cast metrics columns to numeric, excluding the Experiment name column
+        #metric_columns = [col for col in df_result.columns if col != 'Experiment']
+        #metric_columns = first 11 columns after 'Experiment'
+        metric_columns = df_result.columns[1:19].tolist()
+        df_result[metric_columns] = df_result[metric_columns].apply(pd.to_numeric)
+        return df_result
+    else:
+        print("No CSV files found in any of the specified run_ids")
+        return None
+
+def plot_experiment_metrics_test_only(df_result, title=None, printout=False):
+
+    """
+    Plot only the Test metrics (MAE, nMAE, RMSE, Bias) for each experiment as barplots.
+    Args:
+        df (pd.DataFrame): DataFrame containing metrics for different experiments.
+    """
+    df = df_result.iloc[:, :11]
+    metrics = [
+        "MAE [m] (Test)",
+        "nMAE [%] (Test)",
+        "RMSE [m] (Test)",
+        "Bias [m] (Test)",
+        "R2 [-] (Test)"
+    ]
+    metric_labels = ["MAE [m]", "nMAE [%]", "RMSE [m]", "Bias [m]", "R2 [-]"]
+
+    exp_col = df.columns[0]
+    exp_names = df[exp_col].tolist()
+
+    # Shorten experiment names for x-axis
+    short_names = [str(i+1) for i in range(len(exp_names))]
+    exp_name_map = dict(zip(exp_names, short_names))
+    df_short = df.copy()
+    df_short[exp_col] = df_short[exp_col].map(exp_name_map)
+
+    # Define experiment groups and colors
+    group_map = {
+        0: "Baseline",
+        1: "CompositeA",
+        2: "CompositeB",
+        3: "CompositeC",
+        4: "AuxLayerA",
+        5: "AuxLayerB",
+        6: "MidTraining",
+    }
+    viridis = plt.get_cmap('nipy_spectral')
+    color_indices = [0.1, 0.2, 0.3, 0.4, 0.6, 0.7, 0.9]
+    group_colors = {group: viridis(idx) for group, idx in zip(group_map.values(), color_indices)}
+    exp_to_group = {short_names[i]: group_map.get(i, "Other") for i in range(len(short_names))}
+    palette = {name: group_colors[exp_to_group[name]] for name in short_names}
+    # TUM COLORMAP
+    palette = [0x072140, 0x3070B3, 0x8F81EA, 0xB55CA5, 0xFED702, 0xF7B11E, 0x9FBA36]
+    palette = {str(i+1): f'#{palette[i]:06x}' for i in range(len(palette))}
+    
+    # Prepare melted dataframe for plotting
+    df_melted = pd.melt(
+        df_short,
+        id_vars=exp_col,
+        value_vars=metrics,
+        var_name="MetricType",
+        value_name="Value"
+    )
+    df_melted["Metric"] = df_melted["MetricType"].apply(lambda x: x.split()[0] + " " + x.split()[1])
+    df_melted["Group"] = df_melted[exp_col].map(exp_to_group)
+    # if each experiment has multiple entries, we can show error bars (stddev)
+
+    fig, axes = plt.subplots(2, 3, figsize=(14, 8))
+    # Initialize handles and labels for legend outside the loop
+    handles, labels = None, None
+    for i, label in enumerate(metric_labels):
+        ax = axes[i // 3, i % 3]
+        ax.grid(True, which='both', linestyle='--', linewidth=0.5,alpha=0.7)
+        metric_group = df_melted[df_melted["Metric"] == label]
+        bar = sns.barplot(
+            data=metric_group,
+            x=exp_col,
+            y="Value",
+            hue=exp_col,
+            ax=ax,
+            palette=palette,
+            errorbar=None,  # show stddev if multiple entries per experiment
+            #dodge=False
+            )
+        
+        # annotate bars with value (max 2 decimals, trailing zeros stripped)
+        for p in bar.patches:
+            height = p.get_height() if p.get_height() is not None else 0
+            label_ = ('{:.2f}'.format(height)).rstrip('0').rstrip('.')
+            bar.annotate(
+                label_,
+                xy=(p.get_x() + p.get_width() / 2, height),
+                xytext=(0, 3),
+                textcoords='offset points',
+                ha='center',
+                va='bottom',
+                fontsize=9
+            )
+        
+        ax.set_title(label)
+        ax.set_xlabel("")
+        ax.set_ylabel(label)
+        ymax = metric_group["Value"].max()
+        ymin = min(metric_group["Value"].min(),0)  # Ensure ymin is not above zero
+        #print("ymax:", ymax, "ymin:", ymin)
+        ax.set_ylim(ymin * 1.1, ymax * 1.1)  # Set y-limit to 10% above max value
+
+        # Set x-tick rotation safely
+        for label in ax.get_xticklabels():
+            label.set_rotation(0)
+            label.set_ha('center')
+            
+        #if handles and labels:
+        handles, labels = ax.get_legend_handles_labels()
+        if not handles:
+            # manual legend from the palette (one patch per short name)
+            import matplotlib.patches as mpatches
+            handles = [mpatches.Patch(color=palette[name], label=name) for name in palette.keys()]
+            labels = exp_names #list(palette.keys())
+        #print(handles, labels)
+    # remove the last empty subplot if exists
+    if len(axes.flatten()) > len(metric_labels):
+        fig.delaxes(axes.flatten()[len(metric_labels)])
+    fig.legend(handles, labels, title="Experiment", loc="center left", bbox_to_anchor=(0.7, 0.25), fontsize='large')
+    if title is not None:
+        plt.suptitle(title, fontsize='x-large')
+    else:
+        plt.suptitle("Evaluation Metrics by Experiment", fontsize='x-large')
+    plt.tight_layout()
+    if printout:
+        plt.show()
+    else:
+        return fig
+    
+
+def plot_experiment_metrics_multiple_runs(df_result, title=None, printout=False):
+    """
+    Plot Test metrics for each experiment as barplots, showing mean and standard deviation
+    across multiple runs.
+
+    Args:
+        df_result (pd.DataFrame): DataFrame containing metrics for different experiments and runs
+        title (str, optional): Plot title 
+        printout (bool): Whether to show the plot directly
+
+    Returns:
+        matplotlib.figure.Figure: The figure object if printout=False
+    """
+    # Get unique experiment names
+    exp_names = df_result['Experiment'].unique()
+
+    # Select metrics columns
+    metrics = [
+        "MAE [m] (Test)",
+        "nMAE [%] (Test)",
+        "RMSE [m] (Test)", 
+        #"Bias [m] (Test, >5m)",
+        "Bias [m] (Test)",
+        "R2 [-] (Test)"
+    ]
+    metric_labels = ["MAE [m]", "nMAE [%]", "RMSE [m]", "Bias [m]", "R2 [-]"]
+
+    # Create short names for x-axis
+    short_names = [str(i+1) for i in range(len(exp_names))]
+    exp_name_map = dict(zip(exp_names, short_names))
+
+    # Define color scheme
+    group_map = {
+        0: "Baseline", 
+        1: "CompositeA",
+        2: "CompositeB",
+        3: "CompositeC", 
+        4: "AuxLayerA",
+        5: "AuxLayerB",
+        6: "MidTraining"
+    }
+
+    # Create color palette
+    viridis = plt.get_cmap('nipy_spectral')
+    color_indices = [0.1, 0.2, 0.3, 0.4, 0.6, 0.7, 0.9]
+    group_colors = {group: viridis(idx) for group, idx in zip(group_map.values(), color_indices)}
+    exp_to_group = {short_names[i]: group_map.get(i, "Other") for i in range(len(short_names))}
+    palette = {name: group_colors[exp_to_group[name]] for name in short_names}
+    # TUM COLORMAP
+    palette = [0x072140, 0x3070B3, 0x8F81EA, 0xB55CA5, 0xFED702, 0xF7B11E, 0x9FBA36]
+    palette = {str(i+1): f'#{palette[i]:06x}' for i in range(len(palette))}
+    
+    # Create figure
+    fig, axes = plt.subplots(2, 3, figsize=(14, 8))
+
+    # Plot metrics
+    for i, (metric, label) in enumerate(zip(metrics, metric_labels)):
+        ax = axes[i // 3, i % 3]
+        ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
+
+        # Calculate mean and std per experiment
+        stats = df_result.groupby('Experiment')[metric].agg(['mean', 'std']).reset_index()
+        
+        # Plot bars
+        bars = ax.bar(range(len(exp_names)), stats['mean'], 
+                     yerr=stats['std'], capsize=5,
+                     color=[palette[str(i+1)] for i in range(len(exp_names))])
+
+        # Add value annotations
+        for bar, mean, std in zip(bars, stats['mean'], stats['std']):
+            label_ = f'{mean:.2f}\n±{std:.2f}'
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + std * 1.1,
+                   label_, ha='center', va='bottom', fontsize=8)
+
+        ax.set_title(label)
+        ax.set_xlabel("")
+        ax.set_ylabel(label)
+        ax.set_xticks(range(len(exp_names)))
+        ax.set_xticklabels(short_names, rotation=0, ha='center')
+
+        # Set y limits
+        ymax = (stats['mean'] + stats['std']).max()
+        ymin = min((stats['mean'] - stats['std']).min(), 0)
+        ax.set_ylim(ymin * 1.1, ymax * 1.1)
+
+    # Remove empty subplot if exists  
+    if len(axes.flatten()) > len(metrics):
+        fig.delaxes(axes.flatten()[len(metrics)])
+
+    # Add legend
+    handles = [plt.Rectangle((0,0), 1, 1, color=palette[name]) for name in short_names]
+    fig.legend(handles, exp_names, title="Experiment",
+              loc="center left", bbox_to_anchor=(0.7, 0.25), fontsize='large')
+
+    plt.suptitle(title or "Evaluation Metrics by Experiment", fontsize='x-large')
+    plt.tight_layout()
+
+    if printout:
+        plt.show()
+    else:
+        return fig

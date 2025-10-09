@@ -73,62 +73,9 @@ def build_site_data(cfg, site_paths):
     return X, Y
 
 
-# ## example that works:
-    # QUANTILE_IDX = {"Q25": 0, "Q50": 1, "Q75": 2, "AVG": 3, "STD": 4}
-    # stack = []
-    # seasons = ["summer", "spring"]
-    # quantiles = ["Q50", "Q75"]
-
-    # for season in seasons:
-    #     arr, desc = read_multiband_tif_as_stack(site_paths["SITE1"]["S2"][season])  # (bands, channels, H, W)
-    #     arr = arr[:, [QUANTILE_IDX[q] for q in quantiles], :, :]                  # select quantiles
-    #     arr = arr.reshape(-1, arr.shape[-2], arr.shape[-1])                       # (bands*quantiles, H, W)
-    #     stack.append(arr)
-    #     print(f"Season {season} shape:", arr.shape)
-
-    # # Aux inputs
-    # auxes = ['DLT', 'DEM']
-    # for aux in auxes:
-    #     arr = load_raster(site_paths["SITE1"][aux])                                     # (1, H, W)
-    #     stack.append(arr)
-
-    # X = np.concatenate(stack, axis=0)                                             # (C, H, W)
-    # print("Final stack shape:", X.shape)
 
 
-    # # function to be adapted:
-    # stack = []
-
-    # # Spectral inputs
-    # seasons = cfg["spectral"]["seasons"]
-    # quantiles = cfg["spectral"]["quantiles"]
-    # for season in seasons:
-    #     arr, desc = read_multiband_tif_as_stack(site_paths["S2"][season])  # (bands, channels, H, W)
-    #     selected = [arr[:, QUANTILE_IDX[q], :, :] for q in quantiles]
-    #     selected = [x.reshape(-1, x.shape[-2], x.shape[-1]) for x in selected]
-    #     stack.extend(selected)
-
-    # # Aux inputs
-    # for aux in cfg["aux_inputs"]:
-    #     arr = load_raster(site_paths[aux])  # (H,W)
-    #     stack.append(arr)
-
-    # X = np.stack(stack, axis=0)  # (C,H,W)
-
-
-    # # Outputs
-    # Y = {}
-    # for name, out_cfg in cfg["outputs"].items():
-    #     target = out_cfg["target"]
-    #     arr = load_raster(site_paths[target])
-    #     if arr.ndim == 3:
-    #         arr = arr[0]
-    #     Y[name] = arr
-
-    # return X, Y
-
-
-def extract_patches(X, Y, patch_size=32, nan_percent_allowed=8):
+def extract_patches(X, Y, patch_size=32, nan_percent_allowed=8, fullmap=False):
     """
     Extract patches for the input data and corresponding labels.
     Args:
@@ -153,6 +100,9 @@ def extract_patches(X, Y, patch_size=32, nan_percent_allowed=8):
                 np.isnan(y_patch).mean() * 100 <= nan_percent_allowed):
                 X_patches.append(x_patch)
                 Y_patches.append(y_patch)
+            elif fullmap:
+                X_patches.append(np.full((C, patch_size, patch_size), np.nan, dtype=np.float32))
+                Y_patches.append(np.full((Y.shape[0], patch_size, patch_size), np.nan, dtype=np.float32))
 
     return X_patches, Y_patches
 
@@ -164,7 +114,6 @@ def build_patched_dataset(cfg, sites_dict, patch_size=32):
     for site_name, site_paths in sites_dict.items():
         X, Y = build_site_data(cfg, site_paths)
         Xp, Yp = extract_patches(X, Y, patch_size)  # (N, C, ps, ps)
-        #Yp = {k: extract_patches(v[np.newaxis,:,:], patch_size) for k,v in Y.items()}
 
         X_patches.append(Xp)
         Y_patches.append(Yp)
@@ -194,3 +143,36 @@ def split_dataset(X_patches, Y_patches, train_size=0.7, val_size=0.15, test_size
         X_temp, Y_temp, test_size=test_size/(val_size + test_size), random_state=seed
     )
     return (X_train, Y_train), (X_val, Y_val), (X_test, Y_test)
+
+def reconstruct_from_patches(predictions_denorm, target_shape, patch_size=32, overlap=0):
+    """
+    Reconstruct the full prediction map from patches.
+    
+    Args:
+        predictions_denorm (list of np.ndarray): List of predicted patches, each of shape (N, C, ps, ps). e.g. (441, 1, 32, 32)
+        target_shape (tuple): Shape of the target full map (C, H, W). e.g. (1, 846, 1241)
+        patch_size (int): Size of each patch (ps).
+        overlap (int): Overlap between patches.
+        
+    Returns:
+        np.ndarray: Reconstructed full prediction map of shape (C, H, W).
+    """
+    C = predictions_denorm.shape[1]
+    H, W = target_shape[1], target_shape[2]
+    full_map = np.zeros((C, H, W), dtype=np.float32)
+    count_map = np.zeros((C, H, W), dtype=np.float32)
+
+    step = patch_size - overlap
+    idx = 0
+    for i in range(0, H - patch_size + 1, step):
+        for j in range(0, W - patch_size + 1, step):
+            if idx < len(predictions_denorm):
+                full_map[:, i:i + patch_size, j:j + patch_size] += predictions_denorm[idx]
+                count_map[:, i:i + patch_size, j:j + patch_size] += 1
+                idx += 1
+
+    # Avoid division by zero
+    count_map[count_map == 0] = 1
+    full_map /= count_map
+
+    return full_map
