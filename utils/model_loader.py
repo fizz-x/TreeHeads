@@ -11,6 +11,7 @@ from datetime import datetime
 # Central hyperparameter config
 # raytune / keras 
 global_config = {
+    'seed': 47,
     'patch_size': 32,
     'num_bands': 15,        # change based on input (13+1 for fmask, +1 for mask channel)
     'batch_size': 48,
@@ -20,8 +21,8 @@ global_config = {
     'scheduler_patience':15,
     'scheduler_factor':0.5,
     'scheduler_min_lr':1e-6,
-    'early_stopping_patience': 40,
-    'epochs': 50,
+    'early_stopping_patience': 75,
+    'epochs': 500,
     'huber_delta': 1.35,
     'device':  'mps' if torch.backends.mps.is_available() else 'cpu'
 }
@@ -306,29 +307,34 @@ def train_model(model, train_loader, val_loader, cfg, global_config):
 
     return model, logs
 
+def generate_run_id():
+        
+    today = datetime.now().strftime("%y%m%d")
+    idx = 0
+
+    # Check existing folders
+    results_dir = "../results"
+    if os.path.exists(results_dir):
+        folders = [f for f in os.listdir(results_dir) if f.startswith(today)]
+        if folders:
+            # Extract indices from existing folders and get max
+            indices = [int(f.split('_')[1]) for f in folders]
+            idx = max(indices) + 1
+
+    run_id = f"{today}_{idx}"
+    return run_id
 
 def save_results(model, val_loader, test_loader, normparams, logs, cfg, run_id=None):
 
     if run_id is None:
-        today = datetime.now().strftime("%y%m%d")
-        idx = 0
-
-        # Check existing folders
-        results_dir = "../results"
-        if os.path.exists(results_dir):
-            folders = [f for f in os.listdir(results_dir) if f.startswith(today)]
-            if folders:
-                # Extract indices from existing folders and get max
-                indices = [int(f.split('_')[1]) for f in folders]
-                idx = max(indices) + 1
-
-        run_id = f"{today}_{idx}"
+        run_id = generate_run_id()
 
     out_dir = os.path.join("../results", run_id, 'train', cfg['exp'])
     os.makedirs(out_dir, exist_ok=True)
 
     # Save model weights
-    torch.save(model.state_dict(), os.path.join(out_dir, "model.pth"))
+    torch.save(model.state_dict(), os.path.join(out_dir, "model_weights.pth"))
+    torch.save(model, os.path.join(out_dir, "model.pth"))
 
     # Save logs and cfg as JSON
     with open(os.path.join(out_dir, "logs.json"), "w") as f:
@@ -366,17 +372,6 @@ def denorm_chm(chm, params):
 
 def get_predictions_and_targets(loader, model, normparams):
 
-    # preds = []
-    # targets = []
-    # masklayer = []
-    # with torch.no_grad():
-    #     for X_batch, y_batch, mask in loader:
-    #         X_batch = X_batch.to(device)
-    #         outputs = model(X_batch)
-    #         preds.append(outputs.cpu())
-    #         targets.append(y_batch.cpu())
-    #         masklayer.append(mask.cpu())
-
     model.eval()
     device = next(model.parameters()).device
     preds = []
@@ -394,8 +389,14 @@ def get_predictions_and_targets(loader, model, normparams):
     targets = torch.cat(targets, dim=0).numpy()
     masklayer = torch.cat(masklayer, dim=0).numpy()
 
-    preds = denorm_chm(preds, normparams)
-    targets = denorm_chm(targets, normparams)
+    if preds.shape[1] > 1:
+        # multi-output: only denorm the first channel (canopy height)
+        preds[:, 0:1, :, :] = denorm_chm(preds[:, 0:1, :, :], normparams)
+        targets[:, 0:1, :, :] = denorm_chm(targets[:, 0:1, :, :], normparams)
+    else:
+        preds = denorm_chm(preds, normparams)
+        targets = denorm_chm(targets, normparams)
+
     return preds, targets, masklayer
 
 def load_results(exp_dir, run_id=None):
@@ -407,7 +408,7 @@ def load_results(exp_dir, run_id=None):
     else:
         out_dir = os.path.join("../results/train", exp_dir)
 
-    model_weights = torch.load(os.path.join(out_dir, "model.pth"))
+    model_weights = torch.load(os.path.join(out_dir, "model_weights.pth"))
     with open(os.path.join(out_dir, "logs.json"), "r") as f:
         logs = json.load(f)
     with open(os.path.join(out_dir, "cfg.json"), "r") as f:
