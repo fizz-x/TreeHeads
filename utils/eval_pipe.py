@@ -303,7 +303,7 @@ def plot_real_pred_delta(report, num_samples=5, device='cpu'):
         plt.subplot(1, 4, 2)
         plt.title("ALS Ground Truth [m]")
         plt.axis('off')
-        min_val = np.nanmin(target_sample)
+        min_val = 0 #np.nanmin(target_sample)
         max_val = np.nanmax(target_sample)*0.95
         im = plt.imshow(target_sample, cmap='viridis', vmin=min_val, vmax=max_val)
         plt.colorbar(im, ax=plt.gca())
@@ -719,6 +719,7 @@ def plot_experiment_metrics_test_only(df_result, title=None, printout=False):
 
     exp_col = df.columns[0]
     exp_names = df[exp_col].tolist()
+    
 
     # Shorten experiment names for x-axis
     short_names = [str(i+1) for i in range(len(exp_names))]
@@ -764,38 +765,50 @@ def plot_experiment_metrics_test_only(df_result, title=None, printout=False):
         ax = axes[i // 3, i % 3]
         ax.grid(True, which='both', linestyle='--', linewidth=0.5,alpha=0.7)
         metric_group = df_melted[df_melted["Metric"] == label]
-        bar = sns.barplot(
-            data=metric_group,
-            x=exp_col,
-            y="Value",
-            hue=exp_col,
-            ax=ax,
-            palette=palette,
-            errorbar=None,  # show stddev if multiple entries per experiment
-            #dodge=False
-            )
+
+                # Plot bars
+        bars = ax.bar(range(len(exp_names)), metric_group['Value'], 
+                     #yerr=stats['std'], capsize=5,
+                     color=[palette[str(i+1)] for i in range(len(exp_names))])
+
+        # Add value annotations
+        for bar, mean in zip(bars, metric_group['Value']):
+            label_ = f'{mean:.2f}'
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                   label_, ha='center', va='bottom', fontsize=9)
+        ## old     
+        # bar = sns.barplot(
+        #     data=metric_group,
+        #     x=exp_col,
+        #     y="Value",
+        #     hue=exp_col,
+        #     ax=ax,
+        #     palette=palette,
+        #     errorbar=None,  # show stddev if multiple entries per experiment
+        #     #dodge=False
+        #     )
         
-        # annotate bars with value (max 2 decimals, trailing zeros stripped)
-        for p in bar.patches:
-            height = p.get_height() if p.get_height() is not None else 0
-            label_ = ('{:.2f}'.format(height)).rstrip('0').rstrip('.')
-            bar.annotate(
-                label_,
-                xy=(p.get_x() + p.get_width() / 2, height),
-                xytext=(0, 3),
-                textcoords='offset points',
-                ha='center',
-                va='bottom',
-                fontsize=9
-            )
-        
+        # # annotate bars with value (max 2 decimals, trailing zeros stripped)
+        # for p in bar.patches:
+        #     height = p.get_height() if p.get_height() is not None else 0
+        #     label_ = ('{:.2f}'.format(height)).rstrip('0').rstrip('.')
+        #     bar.annotate(
+        #         label_,
+        #         xy=(p.get_x() + p.get_width() / 2, height),
+        #         xytext=(0, 3),
+        #         textcoords='offset points',
+        #         ha='center',
+        #         va='bottom',
+        #         fontsize=9
+        #     )
+        ## --- 
         ax.set_title(label)
         ax.set_xlabel("")
         ax.set_ylabel(label)
         ymax = metric_group["Value"].max()
         ymin = min(metric_group["Value"].min(),0)  # Ensure ymin is not above zero
         #print("ymax:", ymax, "ymin:", ymin)
-        ax.set_ylim(ymin * 1.1, ymax * 1.1)  # Set y-limit to 10% above max value
+        ax.set_ylim(ymin * 1.1, ymax * 1.2 + 0.15)  # Set y-limit to 10% above max value
 
         # Set x-tick rotation safely
         for label in ax.get_xticklabels():
@@ -896,7 +909,7 @@ def plot_experiment_metrics_multiple_runs(df_result, title=None, printout=False)
         # Add value annotations
         for bar, mean, std in zip(bars, stats['mean'], stats['std']):
             label_ = f'{mean:.2f}\n±{std:.2f}'
-            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + std * 1.1,
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + std * 1.05,
                    label_, ha='center', va='bottom', fontsize=8)
 
         ax.set_title(label)
@@ -908,7 +921,10 @@ def plot_experiment_metrics_multiple_runs(df_result, title=None, printout=False)
         # Set y limits
         ymax = (stats['mean'] + stats['std']).max()
         ymin = min((stats['mean'] - stats['std']).min(), 0)
-        ax.set_ylim(ymin * 1.1, ymax * 1.1)
+        if ymin < 0: #Bias can be negative
+            ymax = max(ymax, 1)
+            ymin = min(ymin, -1)
+        ax.set_ylim(ymin * 1.05, ymax * 1.2)
 
     # Remove empty subplot if exists  
     if len(axes.flatten()) > len(metrics):
