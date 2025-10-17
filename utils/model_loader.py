@@ -7,6 +7,7 @@ import torch.nn as nn
 import os
 import json
 from datetime import datetime
+import pandas as pd
 
 # Central hyperparameter config
 # raytune / keras 
@@ -14,7 +15,7 @@ global_config = {
     'seed': 47,
     'patch_size': 32,
     'num_bands': 15,        # change based on input (13+1 for fmask, +1 for mask channel)
-    'batch_size': 48,
+    'batch_size': 128,
     'learning_rate': 8e-4,
     'weight_decay': 2e-4,
     'scheduler_type': 'ReduceLROnPlateau',
@@ -29,7 +30,7 @@ global_config = {
 
 
 class S2CanopyHeightDataset(Dataset):
-    def __init__(self, X, y):
+    def __init__(self, X, y, cfg=None):
         self.X = torch.from_numpy(X).float()               # (N, num_bands, 32, 32)
         self.y = torch.from_numpy(y).float()               # (N, 1, 32, 32), not need to unsqueeze here
         # NaN mask across bands → shape: (N, 1, 32, 32)
@@ -40,10 +41,12 @@ class S2CanopyHeightDataset(Dataset):
 
         # Replace NaNs in input and target with -1.0 wherever mask is False
         # self.X[self.mask.expand_as(self.X) == 0] = -1.0
-        # self.y[self.mask.expand_as(self.y) == 0] = -7.0 #dont do this with y
+        # self.y[self.mask.expand_as(self.y) == 0] = -7.0 
         # Replace NaNs in input with -1.0 or some other value
         self.X[torch.isnan(self.X)] = -1.0 
         self.y[torch.isnan(self.y)] = -10.0 
+
+        self.cfg = cfg
 
     def __len__(self):
         return self.X.shape[0]
@@ -54,27 +57,44 @@ class S2CanopyHeightDataset(Dataset):
         total_pixels = self.mask.numel()
         valid_pixels = self.mask.sum().item()
         return valid_pixels / total_pixels
-    def getRGB(self, idx):
-        # Assumes bands 3, 2, 1 correspond to R, G, B respectively (0-indexed)
-        RGB_indices = [10, 3, 0]  # basic setup 
-        max_aux_layer = 4 
-        #(seasons*quantiles*bands, H, W) - seasons can be 3 dim or 1, quantiles 3 or 1. make sure to select the right bands for RGB
-        if self.X.shape[1] < 13:
-            raise ValueError("Dataset does not have enough bands to extract RGB.")
-        elif self.X.shape[1] <= 13 + max_aux_layer:
-            RGB_indices = RGB_indices
-        elif self.X.shape[1] <= 39 + max_aux_layer:
-            RGB_indices = [x + 13 for x in [10, 3, 0]]  # Adjust if necessary based on actual band order
-        elif self.X.shape[1] == 117 + max_aux_layer:
-            RGB_indices = [x + 13*4 for x in [10, 3, 0]]  # Adjust if necessary based on actual band order
+    def get_rgb_indices(self):
+        import pandas as pd
+        cfg = self.cfg
+        if cfg is None:
+            raise ValueError("Config dictionary is required to get RGB indices.")
+        
+        seasons = cfg['spectral'].get('seasons', [])
+        quantiles = cfg['spectral'].get('quantiles', [])
+        channels = ['BLU','BNR','EVI','GRN','NBR','NDV','NIR','RE1','RE2','RE3','RED','SW1','SW2']
+
+        names = [f"{ch}_{season}_{q}" for season in seasons for ch in channels for q in quantiles]
+        df = pd.DataFrame({'Name': names})
+        df['season'] = df['Name'].apply(lambda x: x.split('_')[1])
+        df['quantile'] = df['Name'].apply(lambda x: x.split('_')[2])
+        df['channel'] = df['Name'].apply(lambda x: x.split('_')[0])
+
+        targets = ['RED', 'GRN', 'BLU']
+        indices = []
+        for ch in targets:
+            idxs = df.loc[
+                (df['season'] == 'summer') &
+                (df['quantile'] == 'Q50') &
+                (df['channel'] == ch)
+            ].index.tolist()
+            indices.append(idxs[0] if idxs else None)
+
+        return indices
+
+    def getRGB(self, idx, brightness_factor=1.0):
+        # correspond to R, G, B respectively (0-indexed)
+        RGB_indices = [10, 3, 0]  # basic setup
+        RGB_indices = self.get_rgb_indices()  # dynamic from cfg
+
         rgb = self.X[idx, RGB_indices, :, :]  # (3, 32, 32)
-        # Normalize to [0, 1] for visualization
-        rgb_no_nan = torch.nan_to_num(rgb, nan=float('-inf'))
-        rgb_min = torch.min(rgb_no_nan)
-        rgb_max = torch.max(rgb_no_nan)
-        rgb = (rgb - rgb_min) / (rgb_max - rgb_min + 1e-6)  # Avoid division by zero
-        return rgb.to("cpu").numpy()
-    
+        img = rgb.to("cpu").numpy()
+        img = np.clip(img * brightness_factor, 0.0, 1.0)
+        return img
+
     def __getitem__(self, idx):
         x = self.X[idx]                         # (num_bands, 32, 32)
         m = self.mask[idx].float()             # (1, 32, 32)
