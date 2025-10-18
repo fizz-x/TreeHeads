@@ -5,6 +5,7 @@ import os
 import rasterio
 import seaborn as sns
 from utils.basics import load_rasters
+from matplotlib.patches import Patch
 
 def normalize_S2(s2, band_idxs=(10, 3, 0)):
     """
@@ -30,7 +31,7 @@ def normalize_S2(s2, band_idxs=(10, 3, 0)):
     
     return rgb
 
-def plot_full_image(s2, als, band_idxs=(10, 3, 0),norm_rgb=False):
+def plot_full_image(s2, als, band_idxs=(10, 3, 0),norm_rgb=False, title="S2 and ALS Full Image"):
     """
     Plot the full image of S2 data (RGB) and ALS.
 
@@ -44,23 +45,31 @@ def plot_full_image(s2, als, band_idxs=(10, 3, 0),norm_rgb=False):
     else:
         rgb = s2[band_idxs, :, :].transpose(1, 2, 0)
 
-    fig, axs = plt.subplots(1, 2, figsize=(15, 7))
+    fig, axs = plt.subplots(1, 2, figsize=(15, 6))
 
     # Plot S2 RGB
     axs[0].imshow(rgb)
-    axs[0].set_title("S2 RGB")
+    axs[0].set_title("S2 RGB Summer Q50")
     axs[0].axis("off")
+
+    # add a scale bar to the RGB image
+    scalebar_length_m = 2000  # length of the scale bar in meters
+    axs[0].add_artist(plt.Line2D([50, 50 + scalebar_length_m // 10], [rgb.shape[0] - 30, rgb.shape[0] - 30], color='white', linewidth=5,))
+    axs[0].text(50 + scalebar_length_m // 20, rgb.shape[0] - 40, f'{scalebar_length_m} m', color='white', fontsize=12, ha='center')
 
     # Plot ALS mean
     im = axs[1].imshow(als, cmap='viridis')
-    axs[1].set_title("Canopy Height (ALS Resampled)")
+    axs[1].set_title("Canopy Height (ALS CHM)")
     # axs[1].set_xlabel("Meters") # Optional: add x-axis label
     # axs[1].set_ylabel("Meters") # Optional: add y-axis label
     # axs[1].set_aspect('equal')  # Ensure equal aspect ratio
     axs[1].axis("off")
-    cbar = fig.colorbar(im, ax=axs[1], orientation='vertical', fraction=0.046, pad=0.04)
+    max_cbar = 50  # set max value for colorbar
+    im.set_clim(0, max_cbar)  # set color limits
+    cbar = fig.colorbar(im, ax=axs[1], orientation='vertical', fraction=0.03, pad=0.04) 
     cbar.set_label("Height (m)")
 
+    fig.suptitle(title, fontsize=16)
     plt.tight_layout()
     plt.show()
 
@@ -96,6 +105,70 @@ def plot_overlay(s2, als, band_idxs=(10, 3, 0), alpha=0.5,norm_rgb=False, type =
         plt.title("RGB Image with Forest Mask Overlay")
         plt.colorbar(label="Forest Mask (1 = Forest)", fraction=0.02, pad=0.04) 
     plt.tight_layout
+    plt.show()
+
+def plot_rgb_and_x(rgb, aux, title="RGB + X", type="CHM", savefig=True):
+    from matplotlib.patches import Patch
+    # Plot RGB image
+    fig = plt.figure(figsize=(5,5))
+    plt.imshow(rgb, interpolation='none')
+
+    if type == "CHM":
+        plt.imshow(aux, interpolation='none',cmap="viridis", vmin=0,vmax=50, alpha=0.75)
+        plt.colorbar(label="Canopy Height (m)", fraction=0.025,pad=0.04)
+    if type =="FMASK":
+        mask = aux == 1
+        plt.imshow(np.ma.masked_where(~mask, aux), interpolation='none', cmap=plt.cm.Greens, vmin=0, vmax=2.4, alpha=0.7)
+        # Create custom legend
+        legend_elements = [Patch(facecolor='green', alpha=0.5, label='Forest')]
+        plt.legend(handles=legend_elements, loc='upper right')
+    if type == "DLT":
+        #plt.imshow(aux, interpolation='none',cmap="viridis",alpha=0.4)
+        # Create a masked array for each class
+        #mask0 = aux == 0
+        mask1 = aux == 1
+        mask2 = aux == 2
+ 
+        # Plot each class with different colors and transparencies
+        #plt.imshow(np.ma.masked_where(~mask0, aux), interpolation='none', cmap=plt.cm.Blues, vmin=0, vmax=2, alpha=0.23)
+        plt.imshow(np.ma.masked_where(~mask1, aux), interpolation='none', cmap=plt.cm.Greens, vmin=0, vmax=6, alpha=0.7)
+        plt.imshow(np.ma.masked_where(~mask2, aux), interpolation='none', cmap=plt.cm.Greens, vmin=0, vmax=3, alpha=0.7)
+
+        # Create custom legend
+        legend_elements = [
+            #Patch(facecolor='blue', alpha=0.3, label='Class 0'),
+            Patch(facecolor='lightgreen', alpha=0.7, label='Broadleaved Trees'),
+            Patch(facecolor='darkgreen', alpha=0.8, label='Coniferous Trees')
+        ]
+        plt.legend(handles=legend_elements, loc='upper right')
+
+    # Add scale bar
+    scalebar_length_m = 2000  # length of the scale bar in meters
+    plt.plot([50, 50 + scalebar_length_m // 10], [rgb.shape[0] - 40, rgb.shape[0] - 40], color='white', linewidth=5)
+    plt.text(50 + scalebar_length_m // 20, rgb.shape[0] - 65, f'{scalebar_length_m} m', color='white', fontsize=12, ha='center')
+
+    plt.title(title)
+    plt.axis("off")
+    plt.tight_layout()
+
+    if savefig == True:
+        basepath = "../data/10_insights/"
+        # Create directory if it doesn't exist
+        os.makedirs(basepath, exist_ok=True)
+        
+        # Get first word of title and combine with type
+        save_title = title.split()[0] + f"_{type}.png"
+        
+        # Save figure
+        fig.savefig(os.path.join(basepath, save_title), 
+                    bbox_inches='tight', 
+                    dpi=250)
+        save_title = title.split()[0] + f"_{type}.pdf"
+        fig.savefig(os.path.join(basepath, save_title), 
+                    bbox_inches='tight', 
+                    dpi=250)
+
+    return fig
     plt.show()
 
 def plot_ALS_histogram(als_path):
