@@ -634,6 +634,10 @@ def normalize_chm(SITE1,SITE2,SITE3,NORMPARAMS,jointnorm = True):
                     "std": NORMPARAMS.chm._111["std"]
                 }
     else:
+        # Initialize CHM_norm_combo dictionary for each site
+        for site in [SITE1, SITE2, SITE3]:
+            site.CHM_norm_combo = {}
+
         combos = ["001", "010", "100", "011", "101", "110"]
         for combo in combos:
             attr_key = f"_{combo}"
@@ -653,10 +657,10 @@ def normalize_chm(SITE1,SITE2,SITE3,NORMPARAMS,jointnorm = True):
                     with rasterio.open(out_path, 'w', **meta) as dst:
                         dst.write(als_norm.astype(np.float32), 1)
                         dst.descriptions = [f"nCHM_{combo}"]
-                    # site.CHM_norm = out_path
-                    # site.CHM_norm_params = {
-                    #     "mu": NORMPARAMS.chm[attr_key]["mu"],
-                    #     "std": NORMPARAMS.chm[attr_key]["std"]
-                    # }
+                    site.CHM_norm_combo[attr_key] = {
+                        "path": out_path,
+                        "mu": NORMPARAMS.chm.__dict__[attr_key]["mu"],
+                        "std": NORMPARAMS.chm.__dict__[attr_key]["std"]
+                    }
                 print(f"✅ Saved normalized CHM for combo {combo} at {out_path}")
     print("✅ ALS normalization complete.")

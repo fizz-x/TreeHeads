@@ -1,6 +1,31 @@
 SITE1:
   CHM: ../data/01_input_pipeline/01_Ebrach/01_CHM.tif
   CHM_norm: ../data/01_input_pipeline/01_Ebrach/01_CHM_norm111.tif
+  CHM_norm_combo:
+    _001:
+      mu: 29.136810302734375
+      path: ../data/01_input_pipeline/10_generalization/Ebrach/CHM_norm001.tif
+      std: 5.059322357177734
+    _010:
+      mu: 27.330501556396484
+      path: ../data/01_input_pipeline/10_generalization/Ebrach/CHM_norm010.tif
+      std: 6.319409370422363
+    _011:
+      mu: 28.23365592956543
+      path: ../data/01_input_pipeline/10_generalization/Ebrach/CHM_norm011.tif
+      std: 5.794953346252441
+    _100:
+      mu: 29.6536808013916
+      path: ../data/01_input_pipeline/10_generalization/Ebrach/CHM_norm100.tif
+      std: 9.09404182434082
+    _101:
+      mu: 29.395244598388672
+      path: ../data/01_input_pipeline/10_generalization/Ebrach/CHM_norm101.tif
+      std: 7.363151550292969
+    _110:
+      mu: 28.49209213256836
+      path: ../data/01_input_pipeline/10_generalization/Ebrach/CHM_norm110.tif
+      std: 7.916279315948486
   CHM_norm_params:
     mu: 28.706998825073242
     std: 7.0994954109191895
@@ -21,6 +46,31 @@ SITE1:
 SITE2:
   CHM: ../data/01_input_pipeline/02_Wald/02_CHM.tif
   CHM_norm: ../data/01_input_pipeline/02_Wald/02_CHM_norm111.tif
+  CHM_norm_combo:
+    _001:
+      mu: 29.136810302734375
+      path: ../data/01_input_pipeline/10_generalization/Waldbrunn/CHM_norm001.tif
+      std: 5.059322357177734
+    _010:
+      mu: 27.330501556396484
+      path: ../data/01_input_pipeline/10_generalization/Waldbrunn/CHM_norm010.tif
+      std: 6.319409370422363
+    _011:
+      mu: 28.23365592956543
+      path: ../data/01_input_pipeline/10_generalization/Waldbrunn/CHM_norm011.tif
+      std: 5.794953346252441
+    _100:
+      mu: 29.6536808013916
+      path: ../data/01_input_pipeline/10_generalization/Waldbrunn/CHM_norm100.tif
+      std: 9.09404182434082
+    _101:
+      mu: 29.395244598388672
+      path: ../data/01_input_pipeline/10_generalization/Waldbrunn/CHM_norm101.tif
+      std: 7.363151550292969
+    _110:
+      mu: 28.49209213256836
+      path: ../data/01_input_pipeline/10_generalization/Waldbrunn/CHM_norm110.tif
+      std: 7.916279315948486
   CHM_norm_params:
     mu: 28.706998825073242
     std: 7.0994954109191895
@@ -41,6 +91,31 @@ SITE2:
 SITE3:
   CHM: ../data/01_input_pipeline/03_Berch/03_CHM.tif
   CHM_norm: ../data/01_input_pipeline/03_Berch/03_CHM_norm111.tif
+  CHM_norm_combo:
+    _001:
+      mu: 29.136810302734375
+      path: ../data/01_input_pipeline/10_generalization/Berchtesgaden/CHM_norm001.tif
+      std: 5.059322357177734
+    _010:
+      mu: 27.330501556396484
+      path: ../data/01_input_pipeline/10_generalization/Berchtesgaden/CHM_norm010.tif
+      std: 6.319409370422363
+    _011:
+      mu: 28.23365592956543
+      path: ../data/01_input_pipeline/10_generalization/Berchtesgaden/CHM_norm011.tif
+      std: 5.794953346252441
+    _100:
+      mu: 29.6536808013916
+      path: ../data/01_input_pipeline/10_generalization/Berchtesgaden/CHM_norm100.tif
+      std: 9.09404182434082
+    _101:
+      mu: 29.395244598388672
+      path: ../data/01_input_pipeline/10_generalization/Berchtesgaden/CHM_norm101.tif
+      std: 7.363151550292969
+    _110:
+      mu: 28.49209213256836
+      path: ../data/01_input_pipeline/10_generalization/Berchtesgaden/CHM_norm110.tif
+      std: 7.916279315948486
   CHM_norm_params:
     mu: 28.706998825073242
     std: 7.0994954109191895
