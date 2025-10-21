@@ -55,7 +55,7 @@ def compare_raster_metadata(file_A_path, file_B_path):
         print("❌ Transformations do not match!")
 
 # ALS CLEANUP AND PROCESSING FUNCTIONS
-def clean_als_tif(input_path, output_path, min_value=0, max_value=75, override=False):
+def clean_als_tif(input_path, output_path, min_value=0, max_value=65, override=False):
     """
     Cleans an ALS .tif file by setting values outside [min_value, max_value] to NaN and saves the result.
 
@@ -63,7 +63,7 @@ def clean_als_tif(input_path, output_path, min_value=0, max_value=75, override=F
         input_path (str): Path to the raw ALS .tif file.
         output_path (str): Path to save the cleaned .tif file.
         min_value (float): Minimum allowed value; deafults to 0.
-        max_value (float): Maximum allowed value; defaults to 75.
+        max_value (float): Maximum allowed value; defaults to 65.
     """
     # Extract the base filename without extension and append '_processed.tif'
     base_name = os.path.splitext(os.path.basename(input_path))[0]
@@ -553,6 +553,9 @@ def compute_chm_norm_params(SITE1, SITE2, SITE3):
     als2_valid = als2[~np.isnan(als2) & fmask2_bin]
     als3_valid = als3[~np.isnan(als3) & fmask3_bin]
 
+    all_mu = np.array([np.mean(als1_valid), np.mean(als2_valid), np.mean(als3_valid)])
+    all_sig = np.array([np.std(als1_valid), np.std(als2_valid), np.std(als3_valid)])
+
     # Calculate mu and std for each combination of ALS valid arrays
     combos = {
         "001": [als1_valid],
@@ -574,7 +577,21 @@ def compute_chm_norm_params(SITE1, SITE2, SITE3):
         concat = np.concatenate(arrs)
         mu = np.average([np.mean(a) for a in arrs], weights=weights)
         std = np.average([np.std(a) for a in arrs], weights=weights)
-        norm_params[attr_key] = {"mu": float(mu), "std": float(std), "n": int(total)}
+
+        # Apply moment matching (optional)
+        mu_all = np.array([np.mean(a) for a in arrs])
+        mu_eq = mu_all.mean()
+        std_all = np.array([np.std(a) for a in arrs])
+        std2_eq = ( (std_all**2 + mu_all**2).mean() ) - mu_eq**2
+        st_eq = np.sqrt(std2_eq)
+        #st_eq = np.sqrt(np.var(concat) + (mu - np.mean(concat))**2)
+        norm_params[attr_key] = {"mu": float(mu_eq), "std": float(st_eq), "n": int(total)}
+
+    mu_eq = all_mu.mean()
+    # equal-weighted variance (moment matching)
+    sigma2_eq = ( (all_sig**2 + all_mu**2).mean() ) - mu_eq**2
+    std_eq = np.sqrt(sigma2_eq)
+    norm_params["_eq"] = {"mu": float(mu_eq), "std": float(std_eq), "n": int(len(als1_valid) + len(als2_valid) + len(als3_valid))}
 
     # Option 1: Store as JSON file
     # with open("chm_norm_params.json", "w") as f:
@@ -602,25 +619,44 @@ def normalize_chm(SITE1,SITE2,SITE3,NORMPARAMS,jointnorm = True):
         als2_norm = (als2 - NORMPARAMS.chm._111["mu"]) / NORMPARAMS.chm._111["std"]
         als3_norm = (als3 - NORMPARAMS.chm._111["mu"]) / NORMPARAMS.chm._111["std"]
 
+        # Save normalized data using original metadata
+        for als_norm, site in zip([als1_norm, als2_norm, als3_norm], [SITE1, SITE2, SITE3]):
+            with rasterio.open(site.CHM) as src:
+                meta = src.meta.copy()
+                meta.update(dtype='float32', nodata=np.nan)
+                out_path = site.CHM.replace(".tif", "_norm111.tif")
+                with rasterio.open(out_path, 'w', **meta) as dst:
+                    dst.write(als_norm.astype(np.float32), 1)
+                    dst.descriptions = [f"nCHM_global"]
+                site.CHM_norm = out_path
+                site.CHM_norm_params = {
+                    "mu": NORMPARAMS.chm._111["mu"],
+                    "std": NORMPARAMS.chm._111["std"]
+                }
     else:
-        # Apply normalization individually
-        als1_norm = (als1 - NORMPARAMS.chm._001["mu"]) / NORMPARAMS.chm._001["std"]
-        als2_norm = (als2 - NORMPARAMS.chm._010["mu"]) / NORMPARAMS.chm._010["std"]
-        als3_norm = (als3 - NORMPARAMS.chm._100["mu"]) / NORMPARAMS.chm._100["std"]
-        als2_norm = (als2 - NORMPARAMS.chm["010"].mu) / NORMPARAMS.chm["010"].std
-        als3_norm = (als3 - NORMPARAMS.chm["100"].mu) / NORMPARAMS.chm["100"].std
+        combos = ["001", "010", "100", "011", "101", "110"]
+        for combo in combos:
+            attr_key = f"_{combo}"
+            als1_norm = (als1 - NORMPARAMS.chm.__dict__[attr_key]["mu"]) / NORMPARAMS.chm.__dict__[attr_key]["std"]
+            als2_norm = (als2 - NORMPARAMS.chm.__dict__[attr_key]["mu"]) / NORMPARAMS.chm.__dict__[attr_key]["std"]
+            als3_norm = (als3 - NORMPARAMS.chm.__dict__[attr_key]["mu"]) / NORMPARAMS.chm.__dict__[attr_key]["std"]
 
-    # Save normalized data using original metadata
-    for als_norm, site in zip([als1_norm, als2_norm, als3_norm], [SITE1, SITE2, SITE3]):
-        with rasterio.open(site.CHM) as src:
-            meta = src.meta.copy()
-            meta.update(dtype='float32', nodata=np.nan)
-            out_path = site.CHM.replace(".tif", "_norm111.tif")
-            with rasterio.open(out_path, 'w', **meta) as dst:
-                dst.write(als_norm.astype(np.float32), 1)
-                dst.descriptions = [f"nCHM_global"]
-            site.CHM_norm = out_path
-            site.CHM_norm_params = {
-                "mu": NORMPARAMS.chm._111["mu"],
-                "std": NORMPARAMS.chm._111["std"]
-            }
+            # Save normalized data using original metadata
+            for als_norm, site in zip([als1_norm, als2_norm, als3_norm], [SITE1, SITE2, SITE3]):
+                with rasterio.open(site.CHM) as src:
+                    meta = src.meta.copy()
+                    meta.update(dtype='float32', nodata=np.nan)
+                    base_path = '../data/01_input_pipeline/10_generalization/' + site.NAME + '/'
+                    out_path = f"{base_path}CHM_norm{combo}.tif"
+                    # Create output directory if it doesn't exist
+                    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+                    with rasterio.open(out_path, 'w', **meta) as dst:
+                        dst.write(als_norm.astype(np.float32), 1)
+                        dst.descriptions = [f"nCHM_{combo}"]
+                    # site.CHM_norm = out_path
+                    # site.CHM_norm_params = {
+                    #     "mu": NORMPARAMS.chm[attr_key]["mu"],
+                    #     "std": NORMPARAMS.chm[attr_key]["std"]
+                    # }
+                print(f"✅ Saved normalized CHM for combo {combo} at {out_path}")
+    print("✅ ALS normalization complete.")
