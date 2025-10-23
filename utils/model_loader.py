@@ -12,7 +12,7 @@ import pandas as pd
 # Central hyperparameter config
 # raytune / keras 
 global_config = {
-    'seed': 47,
+    'seed': 50,
     'patch_size': 32,
     'num_bands': 15,        # change based on input (13+1 for fmask, +1 for mask channel)
     'batch_size': 128,
@@ -35,7 +35,9 @@ class S2CanopyHeightDataset(Dataset):
         self.y = torch.from_numpy(y).float()               # (N, 1, 32, 32), not need to unsqueeze here
         # NaN mask across bands → shape: (N, 1, 32, 32)
         # A pixel is valid if *not all bands* in X are NaN and y is not NaN
-        x_valid = ~torch.isnan(self.X).any(dim=1, keepdim=True)  # (N, num_bands, 32, 32)
+        # X.any --> drop them if any band is NaN --> too strict ?
+        # X.all --> only drop pixels where every band is NaN
+        x_valid = ~torch.isnan(self.X).all(dim=1, keepdim=True)  # (N, num_bands, 32, 32)
         y_valid = ~torch.isnan(self.y).any(dim=1, keepdim=True)  # (N, 1, 32, 32)
         self.mask = x_valid & y_valid
 

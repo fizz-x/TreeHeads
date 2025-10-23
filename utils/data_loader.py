@@ -95,9 +95,12 @@ def extract_patches(X, Y, patch_size=32, nan_percent_allowed=8, fullmap=False):
             x_patch = X[:, i:i + patch_size, j:j + patch_size]
             y_patch = Y[:, i:i + patch_size, j:j + patch_size]
 
-            # Check NaN percentage
-            if (np.isnan(x_patch).mean() * 100 <= nan_percent_allowed and
-                np.isnan(y_patch).mean() * 100 <= nan_percent_allowed):
+            # Check NaN percentage for each channel
+            x_nan_per_channel = np.isnan(x_patch).mean(axis=(1,2)) * 100  # (C,)
+            y_nan_per_channel = np.isnan(y_patch).mean(axis=(1,2)) * 100  # (num_outputs,)
+            if (np.all(x_nan_per_channel <= nan_percent_allowed) and 
+                np.all(y_nan_per_channel <= nan_percent_allowed)):
+
                 X_patches.append(x_patch)
                 Y_patches.append(y_patch)
             elif fullmap:
@@ -108,20 +111,75 @@ def extract_patches(X, Y, patch_size=32, nan_percent_allowed=8, fullmap=False):
 
 
 
-def build_patched_dataset(cfg, sites_dict, patch_size=32):
+def build_patched_dataset(cfg, sites_dict, patch_size=32, nan_percent_allowed=20):
     X_patches, Y_patches = [], []
 
     for site_name, site_paths in sites_dict.items():
         X, Y = build_site_data(cfg, site_paths)
-        Xp, Yp = extract_patches(X, Y, patch_size)  # (N, C, ps, ps)
+        Xp, Yp = extract_patches(X, Y, patch_size, nan_percent_allowed=nan_percent_allowed)  # (N, C, ps, ps)
 
+        #print(f"Site {site_name}: extracted {len(Xp)} patches.")
         X_patches.append(Xp)
         Y_patches.append(Yp)
 
     X_patches = np.concatenate(X_patches, axis=0)  # (N, C, ps, ps)
     Y_patches = np.concatenate(Y_patches, axis=0)  # (N, C, ps, ps)
+    #print(f"Total patches extracted: {len(X_patches)}, x32^2 = {len(X_patches)*32*32} pixels.")
     
     return X_patches, Y_patches
+
+def build_patched_dataset_generalization(cfg, sites, combo, patch_size=32, nan_percent_allowed=20):
+    
+    # combos can be ["110","101","011"] #1 is training data, 0 test. logic is LSB: 001 -> SITE1 is training data. 
+    # Train data, where combo == 1
+    test_sites = {}
+    train_sites = sites.copy()
+    site_names = list(sites.keys())
+    # keep the site that is 0 in test_sites dict depending on combo.
+    for i, c in enumerate(combo):
+        if c == "0":
+            site_name = site_names[i]
+            test_sites[site_name] = sites[site_name]
+            train_sites.pop(site_name, None)
+
+            # now for both we overwrite the CHM_norm and CHM_norm_params depending on the combo
+            # Overwrite CHM_norm and CHM_norm_params for test and train sites based on the combo
+            if site_name in test_sites:
+                test_sites[site_name]["CHM_norm"] = test_sites[site_name]["CHM_norm_combo"][f"_{combo}"]["path"]
+                test_sites[site_name]["CHM_norm_params"] = {
+                    "mu": test_sites[site_name]["CHM_norm_combo"][f"_{combo}"]["mu"],
+                    "std": test_sites[site_name]["CHM_norm_combo"][f"_{combo}"]["std"],
+                }
+            elif site_name in train_sites:
+                train_sites[site_name]["CHM_norm"] = train_sites[site_name]["CHM_norm_combo"][f"_{combo}"]["path"]
+                train_sites[site_name]["CHM_norm_params"] = {
+                    "mu": train_sites[site_name]["CHM_norm_combo"][f"_{combo}"]["mu"],
+                    "std": train_sites[site_name]["CHM_norm_combo"][f"_{combo}"]["std"],
+                }
+
+    X_patch_train, Y_patch_train = [], []
+    for site_name, site_paths in train_sites.items():
+        X, Y = build_site_data(cfg, site_paths)
+        Xp, Yp = extract_patches(X, Y, patch_size, nan_percent_allowed=nan_percent_allowed)  # (N, C, ps, ps)
+
+        X_patch_train.append(Xp)
+        Y_patch_train.append(Yp)
+
+    X_patch_train = np.concatenate(X_patch_train, axis=0)  # (N, C, ps, ps)
+    Y_patch_train = np.concatenate(Y_patch_train, axis=0)  # (N, C, ps, ps)
+
+    # Test data, where combo == 0
+    X_patch_test, Y_patch_test = [], []
+    for site_name, site_paths in test_sites.items():
+        X, Y = build_site_data(cfg, site_paths)
+        Xp, Yp = extract_patches(X, Y, patch_size, nan_percent_allowed=nan_percent_allowed)  # (N, C, ps, ps)
+        X_patch_test.append(Xp)
+        Y_patch_test.append(Yp)
+
+    X_patch_test = np.concatenate(X_patch_test, axis=0)  # (N, C, ps, ps)
+    Y_patch_test = np.concatenate(Y_patch_test, axis=0)  # (N, C, ps, ps)
+
+    return X_patch_train, Y_patch_train, X_patch_test, Y_patch_test
 
 def split_dataset(X_patches, Y_patches, train_size=0.7, val_size=0.15, test_size=0.15, seed=42):
     """

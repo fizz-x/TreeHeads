@@ -558,12 +558,12 @@ def compute_chm_norm_params(SITE1, SITE2, SITE3):
 
     # Calculate mu and std for each combination of ALS valid arrays
     combos = {
-        "001": [als1_valid],
+        "100": [als1_valid],
         "010": [als2_valid],
-        "100": [als3_valid],
-        "011": [als1_valid, als2_valid],
+        "001": [als3_valid],
+        "110": [als1_valid, als2_valid],
         "101": [als1_valid, als3_valid],
-        "110": [als2_valid, als3_valid],
+        "011": [als2_valid, als3_valid],
         "111": [als1_valid, als2_valid, als3_valid]
     }
 
@@ -602,8 +602,8 @@ def compute_chm_norm_params(SITE1, SITE2, SITE3):
     NORMPARAMS.chm = SimpleNamespace(**norm_params)
     NORMPARAMS.info = SimpleNamespace(
         description="CHM normalization parameters",
-        encoding="001: FirstSite only, 010: Second Site, 100: Third Site",
-        version="1.0"
+        encoding="001: Third Site only, 010: Second Site, 100: First Site",
+        version="1.1"
     )
     return NORMPARAMS
 
