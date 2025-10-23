@@ -88,17 +88,14 @@
     #   loss: kl
     #   weight: 0.5
 
-08_pretrained_encoder:
-  inherits: mid_level_learning
-  pretrained: true
 
-09_all_quantiles_fmask_dlt_dem:
-  spectral:
-    seasons: ["spring","summer","autumn"]
-    quantiles: ["Q25","Q50","Q75","AVG","STD"]
-  aux_inputs: ["FMASK","DLT","DEM"]
-  strategy: all_in_model
-  outputs:
-    canopy_height:
-      target: "CHM_norm"
-      loss: huber
+# 09_all_quantiles_fmask_dlt_dem:
+#   spectral:
+#     seasons: ["spring","summer","autumn"]
+#     quantiles: ["Q25","Q50","Q75","AVG","STD"]
+#   aux_inputs: ["FMASK","DLT","DEM"]
+#   strategy: all_in_model
+#   outputs:
+#     canopy_height:
+#       target: "CHM_norm"
+#       loss: huber
