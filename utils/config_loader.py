@@ -16,3 +16,4 @@ def get_config(exp_name, sites_yaml="../configs/datapaths.yaml", exp_yaml="../co
     # tbd ?
 
     return sites, exp
+
