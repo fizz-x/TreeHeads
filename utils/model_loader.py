@@ -103,17 +103,27 @@ class S2CanopyHeightDataset(Dataset):
         x_with_mask = torch.cat([x, m], dim=0) # (num_bands + 1, 32, 32)
         return x_with_mask, self.y[idx], self.mask[idx]  # keep mask for loss too
 
-# train_loader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True)
-# val_loader = DataLoader(val_dataset, batch_size=config['batch_size'])
-# test_loader = DataLoader(test_dataset, batch_size=config['batch_size'])
-def build_unet(in_channels, out_channels):
+
+def build_unet_old(in_channels, out_channels, cfg):
     cin = in_channels + 1
     model = UNet(in_channels=cin, out_channels=out_channels)  # +1 in channel for nan-mask
+
     return model
 
 class UNet(nn.Module):
-    def __init__(self, in_channels, out_channels=1, dropout=0.2):
+    def __init__(self, in_channels, out_channels=1, dropout=0.2, output_specs=None):
+        """
+        Args:
+            in_channels: number of input channels (including NaN mask)
+            out_channels: total number of output channels (for backward compatibility)
+            output_specs: list of dicts with keys 'name', 'out_channels', 'activation'
+                         e.g., [{'name': 'chm', 'out_channels': 1, 'activation': None},
+                                {'name': 'fmask', 'out_channels': 1, 'activation': 'sigmoid'}]
+        """
         super(UNet, self).__init__()
+        
+        self.output_specs = output_specs or [{'name': 'output', 'out_channels': out_channels, 'activation': None}]
+        self.total_out_channels = sum(spec['out_channels'] for spec in self.output_specs)
 
         def conv_block(in_c, out_c):
             return nn.Sequential(
@@ -137,7 +147,12 @@ class UNet(nn.Module):
         self.upconv1 = nn.ConvTranspose2d(128, 64, 2, stride=2)
         self.decoder1 = conv_block(128, 64)
 
-        self.final = nn.Conv2d(64, out_channels, kernel_size=1)
+        # Create separate output heads for each task
+        self.output_heads = nn.ModuleDict()
+        for spec in self.output_specs:
+            name = spec['name']
+            out_ch = spec['out_channels']
+            self.output_heads[name] = nn.Conv2d(64, out_ch, kernel_size=1)
 
     def forward(self, x):
         enc1 = self.encoder1(x)
@@ -145,7 +160,25 @@ class UNet(nn.Module):
         bottleneck = self.bottleneck(self.pool2(enc2))
         dec2 = self.decoder2(torch.cat([self.upconv2(bottleneck), enc2], dim=1))
         dec1 = self.decoder1(torch.cat([self.upconv1(dec2), enc1], dim=1))
-        return self.final(dec1)
+        
+        # Apply each output head
+        outputs = []
+        for spec in self.output_specs:
+            name = spec['name']
+            head_output = self.output_heads[name](dec1)
+            
+            # Apply activation if specified
+            activation = spec.get('activation', None)
+            if activation == 'sigmoid':
+                head_output = torch.sigmoid(head_output)
+            elif activation == 'relu':
+                head_output = torch.relu(head_output)
+            # None means raw logits (for losses like cross-entropy, KL-div)
+            
+            outputs.append(head_output)
+        
+        return torch.cat(outputs, dim=1)  # (N, total_out_channels, H, W)
+
 
 # For debugging: set mask to all ones to match nn.HuberLoss behavior
 def masked_huber_loss(pred, target, mask, delta=global_config['huber_delta']):
@@ -170,58 +203,78 @@ def masked_huber_loss(pred, target, mask, delta=global_config['huber_delta']):
 def compute_losses(outputs, y_batch, mask, cfg):
     """
     Computes the total weighted loss for multi-output models with masking.
+    Automatically routes to correct loss function based on output spec in cfg.
     """
     losses = []
     start_idx = 0
+    
     for name, out_cfg in cfg["outputs"].items():
         out_ch = out_cfg.get("out_channels", 1)
         output_slice = outputs[:, start_idx:start_idx+out_ch, :, :]
         target_slice = y_batch[:, start_idx:start_idx+out_ch, :, :]
         mask_slice = mask[:, start_idx:start_idx+out_ch, :, :] if mask.shape[1] > 1 else mask
         weight = out_cfg.get("weight", 1.0)
+        loss_type = out_cfg.get("loss", "huber")
 
-        if out_cfg["loss"] == "huber":
+        if loss_type == "huber":
             loss = masked_huber_loss(output_slice, target_slice, mask_slice)
-        elif out_cfg["loss"] == "bce":
+        
+        elif loss_type == "bce":
+            # For binary classification, apply sigmoid first if not already applied in model
             bce = torch.nn.functional.binary_cross_entropy_with_logits(
                 output_slice, target_slice, reduction='none'
             )
             masked_bce = bce * mask_slice
             loss = masked_bce.sum() / mask_slice.sum().clamp(min=1)
-        elif out_cfg["loss"] == "crossentropy":
+        
+        elif loss_type == "crossentropy":
+            # CrossEntropy expects:
+            # - input: (N, C, H, W) where C = num_classes
+            # - target: (N, H, W) with class indices in range [0, C-1]
+            
+            num_classes = out_cfg.get("num_classes", out_ch)
+            
+            if output_slice.shape[1] != num_classes:
+                raise ValueError(
+                    f"Output channels ({output_slice.shape[1]}) do not match num_classes ({num_classes}). "
+                    f"For multi-class, output_channels should equal num_classes."
+                )
+            
+            # Target is already class indices (values 0, 1, 2, ...)
+            # Shape should be (N, H, W) for cross_entropy
+            target_indices = target_slice.squeeze(1).long()  # (N, H, W)
+            
+            # Compute cross-entropy per pixel
             ce = torch.nn.functional.cross_entropy(
-                output_slice, target_slice.squeeze(1).long(), reduction='none'
-            )
-            masked_ce = ce * mask_slice.squeeze(1)
-            loss = masked_ce.sum() / mask_slice.sum().clamp(min=1)
-        elif out_cfg["loss"] == "kl":
-            # Discretize the continuous target into bins and convert both prediction and target to probability distributions
+                output_slice, target_indices, reduction='none'
+            )  # shape: (N, H, W)
+            # is the cross_entropy using log_softmax internally ?
+            # Yes, PyTorch's cross_entropy function applies log_softmax to the input logits internally.
+
+            # Apply mask: ensure mask is (N, H, W)
+            mask_ce = mask_slice.squeeze(1) if mask_slice.shape[1] > 1 else mask_slice.squeeze(1)
+            masked_ce = ce * mask_ce
+            loss = masked_ce.sum() / mask_ce.sum().clamp(min=1)
+        
+        elif loss_type == "kl":
             num_bins = out_cfg.get("num_bins", 25)
-            min_val = out_cfg.get("min_val", 0.0)
-            max_val = out_cfg.get("max_val", 50.0)
+            min_val = out_cfg.get("min_val", -10.0)
+            max_val = out_cfg.get("max_val", 20.0)
 
             def bin_targets(target, num_bins, min_val, max_val):
-                # target: (N, 1, H, W)
                 bins = torch.linspace(min_val, max_val, num_bins + 1, device=target.device)
-                # Digitize returns bin indices (0 to num_bins-1)
                 target_flat = target.view(-1)
                 bin_indices = torch.bucketize(target_flat, bins[:-1], right=False)
-                # One-hot encode
                 target_binned = torch.zeros(target_flat.size(0), num_bins, device=target.device)
                 target_binned.scatter_(1, bin_indices.unsqueeze(1).clamp(max=num_bins-1), 1)
-                # Reshape back to (N, H, W, num_bins)
                 target_binned = target_binned.view(*target.shape[:-1], target.shape[-2], target.shape[-1], num_bins)
-                # Move bin dim to channel position: (N, num_bins, H, W)
                 target_binned = target_binned.permute(0, 4, 2, 3, 1).squeeze(-1)
                 return target_binned
 
-            # Output slice should have shape (N, num_bins, H, W)
-            # If output_slice is (N, 1, H, W), expand to num_bins via a head in the model
             if output_slice.shape[1] != num_bins:
                 raise ValueError(f"Output channels ({output_slice.shape[1]}) do not match num_bins ({num_bins}).")
 
             target_binned = bin_targets(target_slice, num_bins, min_val, max_val)
-            # KLDiv expects log-probabilities for input, probabilities for target
             kld = torch.nn.functional.kl_div(
                 torch.nn.functional.log_softmax(output_slice, dim=1),
                 torch.nn.functional.softmax(target_binned, dim=1),
@@ -229,13 +282,34 @@ def compute_losses(outputs, y_batch, mask, cfg):
             )
             masked_kld = kld * mask_slice
             loss = masked_kld.sum() / mask_slice.sum().clamp(min=1)
-            masked_kld = kld * mask_slice
-            loss = masked_kld.sum() / mask_slice.sum().clamp(min=1)
+        
         else:
-            raise ValueError(f"Unknown loss {out_cfg['loss']}")
+            raise ValueError(f"Unknown loss type: {loss_type}")
+        
         losses.append(weight * loss)
-        start_idx += out_ch        
+        start_idx += out_ch
+    
     return sum(losses)
+
+
+def build_unet(in_channels, out_channels, cfg):
+    """
+    Build UNet with output heads based on cfg outputs specification.
+    """
+    cin = in_channels + 1  # +1 for NaN mask
+    
+    # Extract output specifications from config
+    output_specs = []
+    for name, out_cfg in cfg["outputs"].items():
+        spec = {
+            'name': name,
+            'out_channels': out_cfg.get("out_channels", 1),
+            'activation': out_cfg.get("activation", None)  # None, 'sigmoid', 'relu', etc.
+        }
+        output_specs.append(spec)
+    
+    model = UNet(in_channels=cin, output_specs=output_specs)
+    return model
 
 class EarlyStopping:
     def __init__(self, patience=10, verbose=False):
@@ -266,21 +340,6 @@ def train_model(model, train_loader, val_loader, cfg, global_config):
 
     #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=global_config['epochs'], eta_min=1e-6)
 
-    # build loss functions from config
-    # loss_fns = {}
-    # for name, out_cfg in cfg["outputs"].items():
-    #     if out_cfg["loss"] == "huber":
-    #         loss_fns[name] = masked_huber_loss #torch.nn.SmoothL1Loss()
-    #     elif out_cfg["loss"] == "bce":
-    #         loss_fns[name] = torch.nn.BCEWithLogitsLoss()
-    #     elif out_cfg["loss"] == "crossentropy":
-    #         loss_fns[name] = torch.nn.CrossEntropyLoss()
-    #     elif out_cfg["loss"] == "kl":
-    #         loss_fns[name] = torch.nn.KLDivLoss(reduction="batchmean")
-    #     else:
-    #         raise ValueError(f"Unknown loss {out_cfg['loss']}")
-
-    # best_val_loss = float('inf')
 
     logs = {'train_loss': [], 'val_loss': []}
 
@@ -365,8 +424,10 @@ def save_results(model, val_loader, test_loader, normparams, logs, cfg, run_id=N
         json.dump(cfg, f)
 
     # Optionally, save predictions and targets for val/test sets
-    preds_val, targets_val, maskval = get_predictions_and_targets(val_loader, model, normparams)
-    preds_test, targets_test, masktest = get_predictions_and_targets(test_loader, model, normparams)
+    preds_val, targets_val, maskval = get_predictions_and_targets(val_loader, model, normparams, cfg)
+    preds_test, targets_test, masktest = get_predictions_and_targets(test_loader, model, normparams, cfg)
+
+
 
     rgb_test = np.stack([test_loader.dataset.getRGB(i) for i in range(len(test_loader.dataset))], axis=0)
     np.savez(os.path.join(out_dir, "test_rgb.npz"), rgb_test=rgb_test)
@@ -392,34 +453,71 @@ def denorm_chm(chm, params):
     std = params['std']
     return chm * std + mean
 
-def get_predictions_and_targets(loader, model, normparams):
+def denorm_chm_tensor(chm_tensor, params):
+    """
+    Denormalizes CHM tensor on the same device as the input tensor.
+    
+    Args:
+        chm_tensor (torch.Tensor): Normalized CHM tensor.
+        params (dict): Dictionary containing 'mean' (mu) and 'std' for denormalization.
+    
+    Returns:
+        torch.Tensor: Denormalized CHM tensor on the same device.
+    """
+    mean = torch.tensor(params['mu'], device=chm_tensor.device, dtype=chm_tensor.dtype)
+    std = torch.tensor(params['std'], device=chm_tensor.device, dtype=chm_tensor.dtype)
+    return chm_tensor * std + mean
 
-    model.eval()
+def get_predictions_and_targets(loader, model, normparams, cfg=None):
+    """
+    Get predictions and targets from a data loader.
+    Applies appropriate activations based on loss type.
+    """
+    all_preds = []
+    all_targets = []
+    all_masks = []
+    
     device = next(model.parameters()).device
-    preds = []
-    targets = []
-    masklayer = []
+    print("Evaluating on device:", device)
+    model.eval()
     with torch.no_grad():
         for X_batch, y_batch, mask in loader:
             X_batch = X_batch.to(device)
-            outputs = model(X_batch)
-            preds.append(outputs.cpu())
-            targets.append(y_batch.cpu())
-            masklayer.append(mask.cpu())
+            outputs = model(X_batch)  # raw logits
+            
+            # Apply task-specific activations based on cfg
+            if cfg is not None:
+                start_idx = 0
+                activated_outputs = []
+                activated_targets = []
+                for name, out_cfg in cfg["outputs"].items():
+                    out_ch = out_cfg.get("out_channels", 1)
+                    output_slice = outputs[:, start_idx:start_idx+out_ch, :, :]
+                    target_slice = y_batch[:, start_idx:start_idx+out_ch, :, :]
+                    loss_type = out_cfg.get("loss", "huber")
+                    
+                    # Apply sigmoid for BCE, argmax for crossentropy
+                    if loss_type == "bce":
+                        output_slice = torch.sigmoid(output_slice)
+                    elif loss_type == "crossentropy":
+                        output_slice = torch.argmax(output_slice, dim=1, keepdim=True).float()
+                    # For huber, denormalize
+                    # For huber, denormalize
+                    elif loss_type == "huber":
+                        output_slice = denorm_chm_tensor(output_slice, normparams)
+                        target_slice = denorm_chm_tensor(target_slice, normparams)
+                    activated_outputs.append(output_slice)
+                    activated_targets.append(target_slice)
+                    start_idx += out_ch
+                
+                outputs = torch.cat(activated_outputs, dim=1)
+                y_batch = torch.cat(activated_targets, dim=1)
+            
+            all_preds.append(outputs.cpu().numpy())
+            all_targets.append(y_batch.cpu().numpy())
+            all_masks.append(mask.cpu().numpy())
 
-    preds = torch.cat(preds, dim=0).numpy()
-    targets = torch.cat(targets, dim=0).numpy()
-    masklayer = torch.cat(masklayer, dim=0).numpy()
-
-    if preds.shape[1] > 1:
-        # multi-output: only denorm the first channel (canopy height)
-        preds[:, 0:1, :, :] = denorm_chm(preds[:, 0:1, :, :], normparams)
-        targets[:, 0:1, :, :] = denorm_chm(targets[:, 0:1, :, :], normparams)
-    else:
-        preds = denorm_chm(preds, normparams)
-        targets = denorm_chm(targets, normparams)
-
-    return preds, targets, masklayer
+    return np.concatenate(all_preds, axis=0), np.concatenate(all_targets, axis=0), np.concatenate(all_masks, axis=0)
 
 def load_results(exp_dir, run_id=None):
     """

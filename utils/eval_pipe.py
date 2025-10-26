@@ -107,7 +107,6 @@ def write_metrics_to_df(report, sites, global_config, df=None):
     pt_ = pt.copy()
     tt_ = tt.copy()
 
-
     do_min = True
     if do_min:
         repl = np.nan
@@ -123,6 +122,7 @@ def write_metrics_to_df(report, sites, global_config, df=None):
 
     mae_val, nmae_val, rmse_val, bias_val, r2_val = get_metrics(pv, tv, verbose=False)
     mae_test, nmae_test, rmse_test, bias_test, r2_test = get_metrics(pt, tt, verbose=False)
+    f1_ch1, f1_macro = get_aux_metrics(report, verbose=False)
 
     metrics = {
         "Experiment": experiment_name,
@@ -136,8 +136,11 @@ def write_metrics_to_df(report, sites, global_config, df=None):
         "Bias [m] (Test)": round(bias_test, 2),
         "R2 [-] (Val)": round(r2_val, 2),
         "R2 [-] (Test)": round(r2_test, 2),
+        "F1 FMASK (Test)": round(f1_ch1, 4),
+        "F1 DLT (Test)": round(f1_macro, 4)
        # "---": "---",
     }
+
     if do_min:
         metrics.update(
         {
@@ -151,7 +154,7 @@ def write_metrics_to_df(report, sites, global_config, df=None):
         f"R2 [-] (Test, >{thresh}m)": round(r2_test_, 2)
         }
         )
-            
+
     metrics.update(global_config)
 
     if df is None:
@@ -184,31 +187,71 @@ def get_metrics(all_preds, all_targets, verbose = True):
     rmse = np.sqrt(np.mean((targets_flat - preds_flat) ** 2))
     r2 = 1 - np.sum((targets_flat - preds_flat) ** 2) / np.sum((targets_flat - np.mean(targets_flat)) ** 2)
     bias = np.mean(preds_flat - targets_flat)
+
+    ## nmae old
     # Calculate normalized MAE as percentage using binning (excluding 0-2m range)
     bins = np.arange(2, 60, 2)  # Create bins from 2m to 60m in 2m steps
     bin_indices = np.digitize(targets_flat, bins) - 1
     mae_percent_per_bin = np.zeros(len(bins))
     counts_per_bin = np.zeros(len(bins))
     
-    for i in range(len(bins)):
-        bin_mask = bin_indices == i
-        if np.sum(bin_mask) > 0:  # Only calculate if bin has values
-            # Calculate MAE as percentage of the bin center value
-            bin_center = bins[i] + 1  # Center of the 2m bin
-            mae = mean_absolute_error(targets_flat[bin_mask], preds_flat[bin_mask])
-            mae_percent_per_bin[i] = (mae / bin_center) * 100
-            counts_per_bin[i] = np.sum(bin_mask)
+    # for i in range(len(bins)): #
+    #     bin_mask = bin_indices == i
+    #     if np.sum(bin_mask) > 0:  # Only calculate if bin has values
+    #         # Calculate MAE as percentage of the bin center value
+    #         bin_center = bins[i] + 1  # Center of the 2m bin
+    #         mae = mean_absolute_error(targets_flat[bin_mask], preds_flat[bin_mask])
+    #         mae_percent_per_bin[i] = (mae / bin_center) * 100
+    #         counts_per_bin[i] = np.sum(bin_mask)
     
-    # Calculate normalized MAE as average percentage across valid bins
-    valid_bins = counts_per_bin > 0
-    nMAE = np.average(mae_percent_per_bin[valid_bins], weights=counts_per_bin[valid_bins])
+    # # Calculate normalized MAE as average percentage across valid bins
+    # valid_bins = counts_per_bin > 0
+    # nMAE = np.average(mae_percent_per_bin[valid_bins], weights=counts_per_bin[valid_bins])
+
+    # nmae new: 
+    # Mask targets within [2, 60] and calculate the flat nMAE
+    mask_nmae = (targets_flat >= 2) & (targets_flat <= 60)
+    nmae_flat = np.mean(np.abs(preds_flat[mask_nmae] - targets_flat[mask_nmae]) / targets_flat[mask_nmae]) * 100
 
     #print(f"[DEBUG] - Length all_preds: {len(all_preds)}; len all_targets: {len(all_targets)}, shape: {all_preds.shape}")
     if verbose:
         print("Metrics:")
         print(f"\tMAE: \t{mae_abs:.2f}m\n \tRMSE: \t{rmse:.2f}m\n \tBias: \t{bias:.2f}m\n \tR2: \t{r2:.2f}") 
         print("----------------------------------------------")
-    return mae_abs, nMAE, rmse, bias, r2
+    return mae_abs, nmae_flat, rmse, bias, r2
+
+def get_aux_metrics(report, verbose = True):
+    from sklearn.metrics import f1_score
+
+    if not report.get("aux") or not report["aux"].get("targets") or report["aux"]["targets"].get("test") is None:
+        if verbose:
+            print("No auxiliary predictions/targets found in report.")
+        return np.nan, np.nan
+
+    pt = report["aux"]["predictions"]["test"].copy()
+    tt = report["aux"]["targets"]["test"].copy()
+    mask = report["masks"]["test"].copy()
+    mask = mask.astype(bool).flatten()
+
+    # Channel 1: F1 score (binary classification)
+    fmask_gt_ch1 = tt[:, 0, :, :].flatten()
+    fmask_gt_ch1 = fmask_gt_ch1[mask]
+    fmask_pred_ch1 = (pt[:, 0, :, :].flatten() > 0.5).astype(np.uint8)
+    fmask_pred_ch1 = fmask_pred_ch1[mask]
+    f1_ch1 = f1_score(fmask_gt_ch1, fmask_pred_ch1, average='binary')
+
+    # Channel 2: Multi-class classification (0, 1, 2)
+    fmask_gt_ch2 = tt[:, 1, :, :].flatten()
+    fmask_gt_ch2 = fmask_gt_ch2[mask]
+    fmask_pred_ch2 = pt[:, 1, :, :].flatten()
+    fmask_pred_ch2 = fmask_pred_ch2[mask]
+    f1_macro = f1_score(fmask_gt_ch2, fmask_pred_ch2, average='macro')
+
+    if verbose:
+        print("Auxiliary Metrics:")
+        print(f"\tF1 Score Channel 1 (Binary): \t{f1_ch1:.4f}\n \tF1 Score Channel 2 (Macro): \t{f1_macro:.4f}") 
+        print("----------------------------------------------")
+    return f1_ch1, f1_macro
 
 def print_all_metrics(report, sites, cfg, above2m = False):
     """
@@ -593,6 +636,19 @@ def ziptheresults(exp_name, model_weights, logs, cfg, preds_val, targets_val, pr
     """
     Compile a new evaluation report for the given experiment.
     """
+
+    auxreport = {}
+    if preds_val.shape[1] > 1: # check if aux channels exist
+        auxreport = {
+            "predictions": {
+                "validation": preds_val[:,1:,:,:], 
+                "test": preds_test[:,1:,:,:]
+            },
+            "targets": {
+                "validation": targets_val[:,1:,:,:],
+                "test": targets_test[:,1:,:,:]
+            }
+        }
     report = {
         "experiment_name": exp_name,
         "model_weights": model_weights,
@@ -613,7 +669,11 @@ def ziptheresults(exp_name, model_weights, logs, cfg, preds_val, targets_val, pr
         "rgb": {
             #"validation": rgb_val,
             "test": rgb_test
+        },
+        "aux": {
+            **auxreport
         }
+
     }
 
     return report
@@ -817,7 +877,6 @@ def plot_experiment_metrics_test_only(df_result, title=None, printout=False):
     else:
         return fig
     
-
 def plot_experiment_metrics_multiple_runs(df_result, title=None, printout=False):
     """
     Plot Test metrics for each experiment as barplots, showing mean and standard deviation
@@ -843,7 +902,7 @@ def plot_experiment_metrics_multiple_runs(df_result, title=None, printout=False)
         "Bias [m] (Test)",
         "R2 [-] (Test)"
     ]
-    metric_labels = ["MAE [m]", "nMAE [%]", "RMSE [m]", "Bias [m]", "R2 [-]"]
+    metric_labels = ["MAE [m]", "nMAE [%]", "RMSE [m]", "Bias [m]", "R2 [-]"] #
 
     # Create short names for x-axis
     short_names = [str(i+1) for i in range(len(exp_names))]
@@ -910,11 +969,28 @@ def plot_experiment_metrics_multiple_runs(df_result, title=None, printout=False)
     if len(axes.flatten()) > len(metrics):
         fig.delaxes(axes.flatten()[len(metrics)])
 
+
     # Add legend
     handles = [plt.Rectangle((0,0), 1, 1, color=palette[name]) for name in short_names]
     fig.legend(handles, exp_names, title="Experiment",
-              loc="center left", bbox_to_anchor=(0.7, 0.25), fontsize='large')
+              loc="center left", bbox_to_anchor=(0.7, 0.3), fontsize='large')
 
+    if "07_aux_task" in exp_names:
+        #print("Including auxiliary task F1 scores in the plot.")
+        # print a text box including F1 scores for aux tasks mean and std in the bottom right corner
+        f1_fmask_mean = df_result["F1 FMASK (Test)"].mean()
+        f1_fmask_std = df_result["F1 FMASK (Test)"].std()
+        f1_dlt_mean = df_result["F1 DLT (Test)"].mean()
+        f1_dlt_std = df_result["F1 DLT (Test)"].std()
+        textstr = (
+            "Auxiliary Task Scores:\n"
+            f'F1 FMASK:  {f1_fmask_mean:.2f} ± {f1_fmask_std:.2f}\n'
+            f'F1 DLT:    {f1_dlt_mean:.2f} ± {f1_dlt_std:.2f}'
+        )
+        props = dict(boxstyle='round', facecolor='#9FBA36', alpha=0.5)
+        fig.text(0.71, 0.13, textstr, fontsize=12, bbox=props, verticalalignment='top', horizontalalignment='left')
+
+    
     plt.suptitle(title or "Evaluation Metrics by Experiment", fontsize='x-large')
     plt.tight_layout()
 
@@ -942,7 +1018,9 @@ def save_big_df_stats(run_ids=None, big_df=None, target_folder="drafts"):
         "nMAE [%] (Test)",
         "RMSE [m] (Test)", 
         "Bias [m] (Test)",
-        "R2 [-] (Test)"
+        "R2 [-] (Test)",
+        "F1 FMASK (Test)",
+        "F1 DLT (Test)"
     ]
     
 
@@ -1174,6 +1252,8 @@ def plot_comparison_all_gen(master_df, title="Comparison of Metrics Across Exper
         metric_label_short = [label.split('(')[0].strip() for label in metric_labels]
 
         for i, (metric, metric_short) in enumerate(zip(metric_labels, metric_label_short)):
+            if i>=5:
+                continue  # Limit to first 5 metrics for 2x3 grid
             ax = axes[i // 3, i % 3]
             ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
 
@@ -1211,8 +1291,8 @@ def plot_comparison_all_gen(master_df, title="Comparison of Metrics Across Exper
             ax.set_ylim(ymin * 1.05, ymax * 1.2)
 
         # Remove empty subplot if exists
-        if len(axes.flatten()) > len(metric_labels):
-            fig.delaxes(axes.flatten()[len(metric_labels)])
+        if len(axes.flatten()) > 5: #len(metric_labels)
+            fig.delaxes(axes.flatten()[5])
 
         # Add legend
         handles = [plt.Rectangle((0, 0), 1, 1, color=legend_palette[name]) for name in short_names]
@@ -1229,14 +1309,13 @@ def plot_comparison_all_gen(master_df, title="Comparison of Metrics Across Exper
         else:
             figures.append(fig)
             path = f"../results/gen/{targetfolder}/gscore/"
-
+            print(path)
             os.makedirs(os.path.dirname(path), exist_ok=True)
             path_fig = path + "absolute_" + combo + ".png"
             fig.savefig(path_fig, bbox_inches='tight')
             plt.close(fig)
 
     return figures
-
 
 def plot_comparison_all_gen_backup(master_df, title="Comparison of Metrics Across Experiments and Combos", printout=False):
     """
