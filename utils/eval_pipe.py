@@ -317,6 +317,7 @@ def plot_real_pred_delta(report, num_samples=5, device='cpu'):
     #model = report["model_weights"].copy()
     mask = report["masks"]["test"].copy()
     shown = 0
+    name = report["experiment_name"]
 
     for i in range(len(rgb)):
         if shown >= num_samples:
@@ -498,86 +499,91 @@ def plot_compact_heatmap_val_test(report, title="Heatmap of Ground-Truth vs Pred
     # plt.show()
     return fig
 
-def plot_error_over_frequency(report, bins=80, title = "Error vs. GT Distribution"):
+def plot_error_over_frequency(report, bins=60, title = "Error vs. GT Distribution"):
     """
-    Plot the error distribution over frequency for validation and test sets.
+    Plot the error distribution over frequency for test set.
 
     Parameters:
-    - y_val_true: np.ndarray, true values for validation set
-    - y_val_pred: np.ndarray, predicted values for validation set
-    - y_test_true: np.ndarray, true values for test set
-    - y_test_pred: np.ndarray, predicted values for test set
+    - report: dict, containing targets, predictions, and masks
     - bins: int, number of bins for histogram
+    - title: str, title of the plot
     """
 
-    y_val_true, y_val_pred, y_test_true, y_test_pred = report["targets"]["validation"].copy(), report["predictions"]["validation"].copy(), report["targets"]["test"].copy(), report["predictions"]["test"].copy()
+    y_test_true = report["targets"]["test"].copy()
+    y_test_pred = report["predictions"]["test"].copy()
     
-    val_errors = y_val_pred - y_val_true
     test_errors = y_test_pred - y_test_true
     from scipy import stats
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 
-    # Validation set
-    val_bin_means, val_bin_edges, _ = stats.binned_statistic(
-        y_val_true.flatten(), val_errors.flatten(), statistic='mean', bins=bins
-    )
-    val_bin_counts, _, _ = stats.binned_statistic(
-        y_val_true.flatten(), y_val_true.flatten(), statistic='count', bins=val_bin_edges
-    )
-    # mask out val_bin_means where counts are less than 5
-    mask = val_bin_counts < 10
-    val_bin_means[mask] = np.nan
-
-    axes[0].plot(
-        (val_bin_edges[:-1] + val_bin_edges[1:]) / 2, val_bin_means, label='Mean Error', color='blue'
-    )
-    axes[0].set_xlabel('Ground Truth')
-    axes[0].set_ylabel('Mean Error (Predicted - True)')
-    axes[0].set_title('Validation Error vs. Ground Truth')
-    axes[0].grid(True)
-    axes[0].set_xlim(0, 50)
-    axes[0].set_ylim(-20, 20)
-    # Overlay ground truth distribution (dashed line, scaled for visibility)
-    gt_dist = val_bin_counts / val_bin_counts.max() * 18
-    axes[0].plot(
-        (val_bin_edges[:-1] + val_bin_edges[1:]) / 2, gt_dist, '--', color='gray', label='GT Distribution (scaled)'
-    )
-    axes[0].legend(loc='lower left')
-
-    # Test set
+    # Test set - Absolute Error
     test_bin_means, test_bin_edges, _ = stats.binned_statistic(
         y_test_true.flatten(), test_errors.flatten(), statistic='mean', bins=bins
     )
     test_bin_counts, _, _ = stats.binned_statistic(
         y_test_true.flatten(), y_test_true.flatten(), statistic='count', bins=test_bin_edges
     )
-    # mask out val_bin_means where counts are less than 5
+    # mask out test_bin_means where counts are less than 10
     mask = test_bin_counts < 10
     test_bin_means[mask] = np.nan
 
-    axes[1].plot(
-        (test_bin_edges[:-1] + test_bin_edges[1:]) / 2, test_bin_means, label='Mean Error', color='green'
+    bin_centers = (test_bin_edges[:-1] + test_bin_edges[1:]) / 2
+    axes[0].fill_between(bin_centers, 0, test_bin_means, alpha=0.3, color='green', label='Mean Error')
+    axes[0].plot(
+        bin_centers, test_bin_means, label='Mean Error', color='green', linewidth=2
     )
-    axes[1].set_xlabel('Ground Truth')
-    axes[1].set_ylabel('Mean Error (Predicted - True)')
-    axes[1].set_title('Test Error vs. Ground Truth')
-    axes[1].grid(True)
-    axes[1].set_xlim(0, 50)
-    axes[1].set_ylim(-20, 20)
+    axes[0].set_xlabel('Ground Truth [m]')
+    axes[0].set_ylabel('Mean Absolute Error [m]')
+    axes[0].set_title('Test: Absolute Error vs. Ground Truth')
+    axes[0].grid(True)
+    axes[0].set_xlim(0, 50)
+    axes[0].set_ylim(-20, 20)
     # Overlay ground truth distribution (dashed line, scaled for visibility)
-    #gt_dist_test = test_bin_counts / test_bin_counts.max() * np.nanmax(np.abs(test_bin_means))
-    gt_dist_test = test_bin_counts / test_bin_counts.max() * 18
+    gt_dist = test_bin_counts / test_bin_counts.max() * 18
+    axes[0].plot(
+        bin_centers, gt_dist, '--', color='gray', label='GT Distribution (scaled)'
+    )
+    axes[0].legend(loc='lower left')
+
+    # Test set - Normalized MAE (nMAE) - only for heights in range [2, 60]m
+    abs_errors = np.abs(test_errors.flatten())
+    gt_flat = y_test_true.flatten()
+    
+    # Mask to only include values in [2, 60] range
+    mask_range = (gt_flat >= 2) & (gt_flat <= 60)
+    abs_errors_masked = abs_errors[mask_range]
+    gt_masked = gt_flat[mask_range]
+    
+    nmae_values = (abs_errors_masked / gt_masked) * 100  # percentage
+    
+    test_bin_nmae, test_bin_edges_nmae, _ = stats.binned_statistic(
+        gt_masked, nmae_values, statistic='mean', bins=bins
+    )
+    test_bin_counts_nmae, _, _ = stats.binned_statistic(
+        gt_masked, gt_masked, statistic='count', bins=test_bin_edges_nmae
+    )
+    # mask out test_bin_nmae where counts are less than 10
+    mask_nmae = test_bin_counts_nmae < 10
+    test_bin_nmae[mask_nmae] = np.nan
 
     axes[1].plot(
-        (test_bin_edges[:-1] + test_bin_edges[1:]) / 2, gt_dist_test, '--', color='gray', label='GT Distribution (scaled)'
+        (test_bin_edges_nmae[:-1] + test_bin_edges_nmae[1:]) / 2, test_bin_nmae, label='Mean nMAE', color='orange'
+    )
+    axes[1].set_xlabel('Ground Truth [m]')
+    axes[1].set_ylabel('Normalized MAE [%]')
+    axes[1].set_title('Test: Normalized Error vs. Ground Truth (2-60m)')
+    axes[1].grid(True)
+    #axes[1].set_xlim(2, 60)
+    # Overlay ground truth distribution (dashed line, scaled for visibility)
+    gt_dist_nmae = test_bin_counts_nmae / test_bin_counts_nmae.max() * np.nanmax(test_bin_nmae) * 0.5
+    axes[1].plot(
+        (test_bin_edges_nmae[:-1] + test_bin_edges_nmae[1:]) / 2, gt_dist_nmae, '--', color='gray', label='GT Distribution (scaled)'
     )
     axes[1].legend(loc='lower left')
 
     fig.suptitle(title)
     plt.tight_layout()
-    # save_plot(plt.gcf(), "error_vs_gt", report)
-    # plt.show()
     return fig
 
 def plot_eval_report(train_losses, val_losses, model, val_loader, test_loader, json_path=None, config=None):
@@ -1026,6 +1032,7 @@ def save_big_df_stats(run_ids=None, big_df=None, target_folder="drafts"):
 
     path = f"../results/{target_folder}/metrics/"
     path_csv = path + "results_summary.csv"
+    path_text_csv = path + "results_text_table.csv"
     os.makedirs(os.path.dirname(path), exist_ok=True)
     for combo in combos:
         path_plt = path + f"results_summary_{combo}.png"
@@ -1053,15 +1060,45 @@ def save_big_df_stats(run_ids=None, big_df=None, target_folder="drafts"):
     for stats_metric in all_stats[1:]:
         combined_stats = pd.merge(combined_stats, stats_metric, on=['Experiment', 'combo'])
 
-
-
     # Save the combined statistics to a CSV file
     os.makedirs(os.path.dirname(path_csv), exist_ok=True)
     combined_stats.to_csv(path_csv, index=False)
     print("Generalization results saved to", path_csv)
 
+    coolstats = readable_metrics_pivot(combined_stats)
+    os.makedirs(os.path.dirname(path_text_csv), exist_ok=True)
+    coolstats.to_csv(path_text_csv)
 
-    return combined_stats
+    return combined_stats, coolstats
+
+def readable_metrics_pivot(stats):
+    """
+    Returns a pivoted table: one row per Experiment, columns are metrics (Mean±Std).
+    Removes (Test) from metric names and replaces NaN with empty string.
+    """
+
+    table = []
+    metric_prefixes = set()
+    for col in stats.columns:
+        if col.endswith(" Mean"):
+            metric_prefixes.add(col[:-5])
+    for idx, row in stats.iterrows():
+        experiment = row["Experiment"] if "Experiment" in row else idx
+        row_dict = {"Experiment": experiment}
+        for metric in metric_prefixes:
+            # Remove (Test) from metric name for header
+            clean_metric = metric.replace(" (Test)", "")
+            mean_col = f"{metric} Mean"
+            std_col = f"{metric} Std"
+            if mean_col in stats.columns and std_col in stats.columns:
+                mean = row[mean_col]
+                std = row[std_col]
+                if pd.isna(mean) or pd.isna(std):
+                    row_dict[clean_metric] = ""
+                else:
+                    row_dict[clean_metric] = f"{mean:.2f}±{std:.2f}"
+        table.append(row_dict)
+    return pd.DataFrame(table).set_index("Experiment")
 
 def generalization_checker(gen_path, allin_path):
 
@@ -1194,7 +1231,7 @@ def plot_genscore(genscore_df, title="Generalization Score per Metric by Experim
         plt.close(fig)
         return fig
 
-def plot_comparison_all_gen(master_df, title="Comparison of Metrics Across Experiments", printout=False, targetfolder = "drafts"):
+def plot_comparison_all_gen(master_df, title="Comparison of Metrics Across Experiments", printout=False, savefig =True, targetfolder = "drafts"):
     """
     Plot comparison of metrics across experiments and combos, with one figure per combo
     and subplots for each metric. Includes a reference value for the "_allin" combo.
@@ -1216,6 +1253,8 @@ def plot_comparison_all_gen(master_df, title="Comparison of Metrics Across Exper
         "_101": "Waldbrunn",
         "_110": "Berchtesgaden"
     }
+    globalmax =[12, 40, 14, 6, 2]
+    globalmin =[0,0,0,-10,-2]
 
     # Custom color palette
     palette = [0x072140, 0x3070B3, 0x8F81EA, 0xB55CA5, 0xFED702, 0xF7B11E, 0x9FBA36]
@@ -1245,9 +1284,8 @@ def plot_comparison_all_gen(master_df, title="Comparison of Metrics Across Exper
 
         merged_df = pd.merge(mean_df, std_df, on=['Experiment', 'combo', 'Metric'], suffixes=('_mean', '_std'))
         merged_df = pd.merge(merged_df, allin_mean_df, on=['Experiment', 'Metric'], suffixes=('', '_allin'))
-
         # Create figure with subplots for each metric
-        fig, axes = plt.subplots(2, 3, figsize=(14, 8))
+        fig, axes = plt.subplots(2, 3, figsize=(14, 7))
         metric_labels = merged_df['Metric'].unique()
         metric_label_short = [label.split('(')[0].strip() for label in metric_labels]
 
@@ -1285,10 +1323,13 @@ def plot_comparison_all_gen(master_df, title="Comparison of Metrics Across Exper
             ax.set_xticklabels(short_names, rotation=0, ha='center')
 
             # Set y limits
-            ymax = max((metric_data['Value_mean'] + metric_data['Value_std']).max(), 1)
-            ymin = min((metric_data['Value_mean'] - metric_data['Value_std']).min(), 0)
-            ymin = min(ymin, metric_data["Value"].min())
-            ax.set_ylim(ymin * 1.05, ymax * 1.2)
+            # ymax = max((metric_data['Value_mean'] + metric_data['Value_std']).max(), 1)
+            # ymin = min((metric_data['Value_mean'] - metric_data['Value_std']).min(), 0)
+            # ymin = min(ymin, metric_data["Value"].min())
+            # ax.set_ylim(ymin * 1.05, ymax * 1.2)
+            ymax = globalmax[i]
+            ymin = globalmin[i]
+            ax.set_ylim(ymin,ymax)
 
         # Remove empty subplot if exists
         if len(axes.flatten()) > 5: #len(metric_labels)
@@ -1298,22 +1339,47 @@ def plot_comparison_all_gen(master_df, title="Comparison of Metrics Across Exper
         handles = [plt.Rectangle((0, 0), 1, 1, color=legend_palette[name]) for name in short_names]
         handles.append(plt.Line2D([0], [0], color='red', marker='x', linestyle='', label='All-In Reference'))
         fig.legend(handles, exp_names.tolist() + ['All-In Reference'], title="Experiment",
-                   loc="center left", bbox_to_anchor=(0.7, 0.25), fontsize='large')
+                   loc="center left", bbox_to_anchor=(0.7, 0.3), fontsize='large')
+
+        if "07_aux_task" in exp_names:
+            #print("Including auxiliary task F1 scores in the plot.")
+            # Helper function for safe extraction
+            def get_metric_value(df, experiment, metric_name):
+                row = df[(df["Experiment"] == experiment) & (df["Metrics"] == metric_name)]
+                if not row.empty:
+                    return row["Value"].values[0]
+                else:
+                    return np.nan
+
+            f1_fmask_mean = get_metric_value(mean_df, "07_aux_task", "F1 FMASK (Test) Mean")
+            f1_fmask_std = get_metric_value(std_df, "07_aux_task", "F1 FMASK (Test) Std")
+            f1_dlt_mean = get_metric_value(mean_df, "07_aux_task", "F1 DLT (Test) Mean")
+            f1_dlt_std = get_metric_value(std_df, "07_aux_task", "F1 DLT (Test) Std")
+            textstr = (
+                "Auxiliary Task Scores:\n"
+                f'F1 FMASK:  {f1_fmask_mean:.2f} ± {f1_fmask_std:.2f}\n'
+                f'F1 DLT:    {f1_dlt_mean:.2f} ± {f1_dlt_std:.2f}'
+            )
+            props = dict(boxstyle='round', facecolor='#9FBA36', alpha=0.5)
+            fig.text(0.71, 0.1, textstr, fontsize=12, bbox=props, verticalalignment='top', horizontalalignment='left')
+
 
         plt.suptitle(title + (f' Train/Test Config: {combo} (Test Site: {combodict[combo]})'), fontsize='x-large')
         plt.tight_layout()
         plt.subplots_adjust(top=0.9)
 
-        if printout:
-            plt.show()
-        else:
+
+        if savefig:
             figures.append(fig)
             path = f"../results/gen/{targetfolder}/gscore/"
             print(path)
             os.makedirs(os.path.dirname(path), exist_ok=True)
             path_fig = path + "absolute_" + combo + ".png"
             fig.savefig(path_fig, bbox_inches='tight')
-            plt.close(fig)
+        if printout:
+            plt.show()
+        else: plt.close(fig)
+    
 
     return figures
 
@@ -1412,3 +1478,85 @@ def plot_comparison_all_gen_backup(master_df, title="Comparison of Metrics Acros
             figures.append(fig)
 
     return figures
+
+def plot_error_over_frequency_backup(report, bins=80, title = "Error vs. GT Distribution"):
+    """
+    Plot the error distribution over frequency for validation and test sets.
+
+    Parameters:
+    - y_val_true: np.ndarray, true values for validation set
+    - y_val_pred: np.ndarray, predicted values for validation set
+    - y_test_true: np.ndarray, true values for test set
+    - y_test_pred: np.ndarray, predicted values for test set
+    - bins: int, number of bins for histogram
+    """
+
+    y_val_true, y_val_pred, y_test_true, y_test_pred = report["targets"]["validation"].copy(), report["predictions"]["validation"].copy(), report["targets"]["test"].copy(), report["predictions"]["test"].copy()
+    
+    val_errors = y_val_pred - y_val_true
+    test_errors = y_test_pred - y_test_true
+    from scipy import stats
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+
+    # Validation set
+    val_bin_means, val_bin_edges, _ = stats.binned_statistic(
+        y_val_true.flatten(), val_errors.flatten(), statistic='mean', bins=bins
+    )
+    val_bin_counts, _, _ = stats.binned_statistic(
+        y_val_true.flatten(), y_val_true.flatten(), statistic='count', bins=val_bin_edges
+    )
+    # mask out val_bin_means where counts are less than 5
+    mask = val_bin_counts < 10
+    val_bin_means[mask] = np.nan
+
+    axes[0].plot(
+        (val_bin_edges[:-1] + val_bin_edges[1:]) / 2, val_bin_means, label='Mean Error', color='blue'
+    )
+    axes[0].set_xlabel('Ground Truth')
+    axes[0].set_ylabel('Mean Error (Predicted - True)')
+    axes[0].set_title('Validation Error vs. Ground Truth')
+    axes[0].grid(True)
+    axes[0].set_xlim(0, 50)
+    axes[0].set_ylim(-20, 20)
+    # Overlay ground truth distribution (dashed line, scaled for visibility)
+    gt_dist = val_bin_counts / val_bin_counts.max() * 18
+    axes[0].plot(
+        (val_bin_edges[:-1] + val_bin_edges[1:]) / 2, gt_dist, '--', color='gray', label='GT Distribution (scaled)'
+    )
+    axes[0].legend(loc='lower left')
+
+    # Test set
+    test_bin_means, test_bin_edges, _ = stats.binned_statistic(
+        y_test_true.flatten(), test_errors.flatten(), statistic='mean', bins=bins
+    )
+    test_bin_counts, _, _ = stats.binned_statistic(
+        y_test_true.flatten(), y_test_true.flatten(), statistic='count', bins=test_bin_edges
+    )
+    # mask out val_bin_means where counts are less than 5
+    mask = test_bin_counts < 10
+    test_bin_means[mask] = np.nan
+
+    axes[1].plot(
+        (test_bin_edges[:-1] + test_bin_edges[1:]) / 2, test_bin_means, label='Mean Error', color='green'
+    )
+    axes[1].set_xlabel('Ground Truth')
+    axes[1].set_ylabel('Mean Error (Predicted - True)')
+    axes[1].set_title('Test Error vs. Ground Truth')
+    axes[1].grid(True)
+    axes[1].set_xlim(0, 50)
+    axes[1].set_ylim(-20, 20)
+    # Overlay ground truth distribution (dashed line, scaled for visibility)
+    #gt_dist_test = test_bin_counts / test_bin_counts.max() * np.nanmax(np.abs(test_bin_means))
+    gt_dist_test = test_bin_counts / test_bin_counts.max() * 18
+
+    axes[1].plot(
+        (test_bin_edges[:-1] + test_bin_edges[1:]) / 2, gt_dist_test, '--', color='gray', label='GT Distribution (scaled)'
+    )
+    axes[1].legend(loc='lower left')
+
+    fig.suptitle(title)
+    plt.tight_layout()
+    # save_plot(plt.gcf(), "error_vs_gt", report)
+    # plt.show()
+    return fig
