@@ -154,6 +154,7 @@ class UNet(nn.Module):
             out_ch = spec['out_channels']
             self.output_heads[name] = nn.Conv2d(64, out_ch, kernel_size=1)
 
+
     def forward(self, x):
         enc1 = self.encoder1(x)
         enc2 = self.encoder2(self.pool1(enc1))
@@ -257,9 +258,9 @@ def compute_losses(outputs, y_batch, mask, cfg):
             loss = masked_ce.sum() / mask_ce.sum().clamp(min=1)
         
         elif loss_type == "kl":
-            num_bins = out_cfg.get("num_bins", 25)
-            min_val = out_cfg.get("min_val", -10.0)
-            max_val = out_cfg.get("max_val", 20.0)
+            num_bins = out_cfg.get("num_bins", 50)
+            min_val = out_cfg.get("min_val", -5.0)
+            max_val = out_cfg.get("max_val", 5.0)
 
             def bin_targets(target, num_bins, min_val, max_val):
                 bins = torch.linspace(min_val, max_val, num_bins + 1, device=target.device)
@@ -330,20 +331,20 @@ class EarlyStopping:
             if self.counter >= self.patience:
                 self.early_stop = True
 
-def train_model(model, train_loader, val_loader, cfg, global_config):
-    device = global_config['device']
+def train_model(model, train_loader, val_loader, cfg):
+    device = cfg['device']
     model.to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=global_config['learning_rate'], weight_decay=global_config['weight_decay'])
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=global_config['scheduler_patience'], factor=global_config['scheduler_factor'], min_lr=global_config['scheduler_min_lr'])
-    early_stopping = EarlyStopping(patience=global_config['early_stopping_patience'], verbose=False)
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg['learning_rate'], weight_decay=cfg['weight_decay'])
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=cfg['scheduler_patience'], factor=cfg['scheduler_factor'], min_lr=cfg['scheduler_min_lr'])
+    early_stopping = EarlyStopping(patience=cfg['early_stopping_patience'], verbose=False)
 
-    #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=global_config['epochs'], eta_min=1e-6)
+    #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cfg['epochs'], eta_min=1e-6)
 
 
     logs = {'train_loss': [], 'val_loss': []}
 
-    for epoch in trange(global_config['epochs'],desc="Epochs"):
+    for epoch in trange(cfg['epochs'],desc="Epochs"):
         model.train()
         total_train_loss = 0
         for X_batch, y_batch, mask in train_loader:
@@ -378,6 +379,7 @@ def train_model(model, train_loader, val_loader, cfg, global_config):
         early_stopping.step(avg_val_loss)
         if early_stopping.early_stop:
             print(f"Early stopping triggered at epoch {epoch+1}")
+            cfg.update({'epochs_ran': epoch+1})
             break
 
         # if avg_val_loss < best_val_loss:
@@ -405,7 +407,7 @@ def generate_run_id():
     run_id = f"{today}_{idx}"
     return run_id
 
-def save_results(model, val_loader, test_loader, normparams, logs, cfg, run_id=None):
+def save_results(model, val_loader, test_loader, normparams, logs, cfg, run_id=None, site_indices_test=None):
 
     if run_id is None:
         run_id = generate_run_id()
@@ -436,6 +438,8 @@ def save_results(model, val_loader, test_loader, normparams, logs, cfg, run_id=N
     np.savez(os.path.join(out_dir, "val_preds_targets.npz"), preds_val=preds_val, targets_val=targets_val, maskval=maskval)
     np.savez(os.path.join(out_dir, "test_preds_targets.npz"), preds_test=preds_test, targets_test=targets_test, masktest=masktest)
 
+    if site_indices_test is not None:
+        np.savez(os.path.join(out_dir, "test_site_indices.npz"), site_indices_test=site_indices_test)
     print("Results saved to:", out_dir)
 
 def denorm_chm(chm, params):
@@ -478,7 +482,6 @@ def get_predictions_and_targets(loader, model, normparams, cfg=None):
     all_masks = []
     
     device = next(model.parameters()).device
-    print("Evaluating on device:", device)
     model.eval()
     with torch.no_grad():
         for X_batch, y_batch, mask in loader:

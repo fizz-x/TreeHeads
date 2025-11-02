@@ -113,6 +113,10 @@ def extract_patches(X, Y, patch_size=32, nan_percent_allowed=8, fullmap=False):
 
 def build_patched_dataset(cfg, sites_dict, patch_size=32, nan_percent_allowed=20):
     X_patches, Y_patches = [], []
+    site_indices = {}
+    current_index = 0
+    site_nums = [] # will be an array with the length of the total patches, with the site number for each patch.
+    site_num = 0
 
     for site_name, site_paths in sites_dict.items():
         X, Y = build_site_data(cfg, site_paths)
@@ -121,12 +125,27 @@ def build_patched_dataset(cfg, sites_dict, patch_size=32, nan_percent_allowed=20
         #print(f"Site {site_name}: extracted {len(Xp)} patches.")
         X_patches.append(Xp)
         Y_patches.append(Yp)
+        site_indices[site_name] = (current_index, current_index + len(Xp))
+        current_index += len(Xp)
+        site_nums.extend([site_num] * len(Xp))
+        site_num += 1
 
     X_patches = np.concatenate(X_patches, axis=0)  # (N, C, ps, ps)
-    Y_patches = np.concatenate(Y_patches, axis=0)  # (N, C, ps, ps)
+    Y_patches = np.concatenate(Y_patches, axis=0)  # (N, C, ps, ps), e.g. (1138, 3, 32, 32)
+    site_nums = np.array(site_nums)
+
+    # # add one dim to Y ((1138, 3, 32, 32) --> (1138, 1, 3, 32, 32))
+    # Y_patches = Y_patches[np.newaxis, ...]
+    # # then write the site number to that new dim, so that each patch has the site number in that dim.
+    # # e.g. if site1 has 400 patches, site2 has 300 patches, site3 has 438 patches, then the first 400 patches will have 0 in that dim, the next 300 patches will have 1 in that dim, and the last 438 patches will have 2 in that dim.
+    # site_num = 0
+    # for site_name, (start_idx, end_idx) in site_indices.items():
+    #     Y_patches[start_idx:end_idx, :, :, :, :] = site_num
+    #     site_num += 1
+
     #print(f"Total patches extracted: {len(X_patches)}, x32^2 = {len(X_patches)*32*32} pixels.")
     
-    return X_patches, Y_patches
+    return X_patches, Y_patches, site_nums
 
 def build_patched_dataset_generalization(cfg, sites, combo, patch_size=32, nan_percent_allowed=20):
     
@@ -181,7 +200,7 @@ def build_patched_dataset_generalization(cfg, sites, combo, patch_size=32, nan_p
 
     return X_patch_train, Y_patch_train, X_patch_test, Y_patch_test
 
-def split_dataset(X_patches, Y_patches, train_size=0.7, val_size=0.15, test_size=0.15, seed=42):
+def split_dataset(X_patches, Y_patches, train_size=0.7, val_size=0.15, test_size=0.15, seed=42, site_indices=None):
     """
     Splits the dataset into train/val/test sets (70/15/15) using sklearn's train_test_split.
     Args:
@@ -194,13 +213,24 @@ def split_dataset(X_patches, Y_patches, train_size=0.7, val_size=0.15, test_size
     Returns:
         (X_train, Y_train), (X_val, Y_val), (X_test, Y_test)
     """
+
     X_train, X_temp, Y_train, Y_temp = train_test_split(
         X_patches, Y_patches, test_size=(val_size + test_size), random_state=seed
     )
     X_val, X_test, Y_val, Y_test = train_test_split(
         X_temp, Y_temp, test_size=test_size/(val_size + test_size), random_state=seed
     )
-    return (X_train, Y_train), (X_val, Y_val), (X_test, Y_test)
+    if site_indices is not None:
+        _, temp = train_test_split(
+            site_indices, test_size=(val_size + test_size), random_state=seed
+        )
+        _, site_indices_test = train_test_split(
+            temp, test_size=test_size/(val_size + test_size), random_state=seed
+        )
+    else:
+        site_indices_test = None
+
+    return (X_train, Y_train), (X_val, Y_val), (X_test, Y_test), site_indices_test
 
 def reconstruct_from_patches(predictions_denorm, target_shape, patch_size=32, overlap=0):
     """

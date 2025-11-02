@@ -245,13 +245,13 @@ def get_aux_metrics(report, verbose = True):
     fmask_gt_ch2 = fmask_gt_ch2[mask]
     fmask_pred_ch2 = pt[:, 1, :, :].flatten()
     fmask_pred_ch2 = fmask_pred_ch2[mask]
-    f1_macro = f1_score(fmask_gt_ch2, fmask_pred_ch2, average='macro')
+    f1_micro = f1_score(fmask_gt_ch2, fmask_pred_ch2, average='micro')
 
     if verbose:
         print("Auxiliary Metrics:")
-        print(f"\tF1 Score Channel 1 (Binary): \t{f1_ch1:.4f}\n \tF1 Score Channel 2 (Macro): \t{f1_macro:.4f}") 
+        print(f"\tF1 Score Channel 1 (Binary): \t{f1_ch1:.4f}\n \tF1 Score Channel 2 (Micro): \t{f1_micro:.4f}") 
         print("----------------------------------------------")
-    return f1_ch1, f1_macro
+    return f1_ch1, f1_micro
 
 def print_all_metrics(report, sites, cfg, above2m = False):
     """
@@ -963,13 +963,13 @@ def plot_experiment_metrics_multiple_runs(df_result, title=None, printout=False)
         ax.set_xticks(range(len(exp_names)))
         ax.set_xticklabels(short_names, rotation=0, ha='center')
 
-        # Set y limits
-        ymax = (stats['mean'] + stats['std']).max()
-        ymin = min((stats['mean'] - stats['std']).min(), 0)
-        if ymin < 0: #Bias can be negative
-            ymax = max(ymax, 1)
-            ymin = min(ymin, -1)
-        ax.set_ylim(ymin * 1.05, ymax * 1.2)
+        # # Set y limits
+        # ymax = (stats['mean'] + stats['std']).max()
+        # ymin = min((stats['mean'] - stats['std']).min(), 0)
+        # if ymin < 0: #Bias can be negative
+        #     ymax = np.nanmax(ymax, 1)
+        #     ymin = np.nanmin(ymin, -1)
+        # ax.set_ylim(ymin * 1.05, ymax * 1.2)
 
     # Remove empty subplot if exists  
     if len(axes.flatten()) > len(metrics):
@@ -1075,8 +1075,8 @@ def readable_metrics_pivot(stats):
     """
     Returns a pivoted table: one row per Experiment, columns are metrics (Mean±Std).
     Removes (Test) from metric names and replaces NaN with empty string.
+    Keeps 'combo' column as its own column.
     """
-
     table = []
     metric_prefixes = set()
     for col in stats.columns:
@@ -1084,9 +1084,9 @@ def readable_metrics_pivot(stats):
             metric_prefixes.add(col[:-5])
     for idx, row in stats.iterrows():
         experiment = row["Experiment"] if "Experiment" in row else idx
-        row_dict = {"Experiment": experiment}
+        combo = row["combo"] if "combo" in stats.columns else ""
+        row_dict = {"Experiment": experiment, "combo": combo}
         for metric in metric_prefixes:
-            # Remove (Test) from metric name for header
             clean_metric = metric.replace(" (Test)", "")
             mean_col = f"{metric} Mean"
             std_col = f"{metric} Std"
@@ -1098,7 +1098,8 @@ def readable_metrics_pivot(stats):
                 else:
                     row_dict[clean_metric] = f"{mean:.2f}±{std:.2f}"
         table.append(row_dict)
-    return pd.DataFrame(table).set_index("Experiment")
+    df = pd.DataFrame(table)
+    return df.set_index("Experiment")
 
 def generalization_checker(gen_path, allin_path):
 
@@ -1139,6 +1140,85 @@ def generalization_checker(gen_path, allin_path):
             allin_mean = allin_row[f'{metric} Mean']
             gen_std = gen_row[f'{metric} Std']
             allin_std = allin_row[f'{metric} Std']
+
+            # Calculate mean score
+            mean_score = genscore(gen_mean, allin_mean)
+            genscore_df = pd.concat([genscore_df, pd.DataFrame([{
+                'Experiment': experiment,
+                'Metric': metric,
+                'combo': combo,
+                'Score': mean_score,
+                'Score_Type': 'mean_score'
+            }])], ignore_index=True)
+
+            # Calculate std factor
+            std_factor = std_prop(gen_std, allin_std)
+            genscore_df = pd.concat([genscore_df, pd.DataFrame([{
+                'Experiment': experiment,
+                'Metric': metric,
+                'combo': combo,
+                'Score': std_factor,
+                'Score_Type': 'std_factor'
+            }])], ignore_index=True)
+
+    return genscore_df
+
+def generalization_checker_sitespec(gen_path, allin_path):
+
+    if not os.path.exists(gen_path):
+        print("Generalization path does not exist:", gen_path)
+        return False
+
+    if not os.path.exists(allin_path):
+        print("All-in path does not exist:", allin_path)
+        return False
+
+    gen_df = pd.read_csv(gen_path)
+    allin_df = pd.read_csv(allin_path)
+
+    def genscore(metric_gen, metric_allin):
+        gscore = (1 - abs(metric_gen - metric_allin) / metric_allin) * 100  # percent
+        return gscore
+    
+    def std_prop(std_gen, std_allin):
+        sprop = std_gen / std_allin
+        return sprop
+
+    combo_sites = {
+        "_011": 0, # Ebrach
+        "_101": 1, # Waldbrunn
+        "_110": 2  # Berchtesgaden
+    }
+    # Initialize an empty DataFrame to store the Genscore for each Experiment x Metric x Combo
+    metrics = ['MAE [m] (Test)', 'nMAE [%] (Test)', 'RMSE [m] (Test)', 'R2 [-] (Test)']
+    genscore_df = pd.DataFrame(columns=['Experiment', 'Metric', 'combo', 'Score', 'Score_Type'])
+
+    for _, gen_row in gen_df.iterrows():
+        experiment = gen_row['Experiment']
+        combo = gen_row['combo']
+        # allin_row = allin_df[allin_df['Experiment'] == experiment and allin_df['site_id'] == combo_sites[combo]]
+        # if allin_row.empty:
+        #     print(f"Experiment {experiment} not found in all-in data.")
+        #     continue
+
+        # allin_row = allin_row.iloc[0]
+        for metric in metrics:
+            gen_mean = gen_row[f'{metric} Mean']
+            gen_std = gen_row[f'{metric} Std']
+
+            # Find the correct row in allin_df for this experiment, site, and metric
+            allin_metric_row = allin_df[
+            (allin_df['experiment'] == experiment) &
+            (allin_df['site_id'] == combo_sites[combo]) &
+            (allin_df['metric'] == metric)
+            ]
+            if allin_metric_row.empty:
+                print(f"Metric {metric} for experiment {experiment} and site {combo_sites[combo]} not found in all-in data.")
+                allin_mean = np.nan
+                allin_std = np.nan
+            else:
+                allin_mean = allin_metric_row['mean'].values[0]
+                allin_std = allin_metric_row['std'].values[0]
 
             # Calculate mean score
             mean_score = genscore(gen_mean, allin_mean)
@@ -1380,6 +1460,154 @@ def plot_comparison_all_gen(master_df, title="Comparison of Metrics Across Exper
             plt.show()
         else: plt.close(fig)
     
+
+    return figures
+
+
+def plot_comparison_all_gen_sitespec(master_df, title="Comparison of Metrics Across Experiments", printout=False, savefig=True, targetfolder="drafts"):
+    """
+    Plot comparison of metrics across experiments and combos, with one figure per combo
+    and subplots for each metric. Includes combo-specific reference values from Allin_Mean.
+
+    Args:
+        master_df (pd.DataFrame): DataFrame containing 'Experiment', 'combo', 'Metrics', 'Gen_Mean', 'Gen_Std', 'Allin_Mean', 'Allin_Std'
+        title (str): Title of the plot
+        printout (bool): Whether to show the plot directly
+        savefig (bool): Whether to save figures to disk
+        targetfolder (str): Target folder for saving figures
+    """
+
+    # Extract unique combos and experiments
+    combos = master_df['combo'].unique()
+    exp_names = master_df['Experiment'].unique()
+    
+    # Create short names for x-axis
+    short_names = [str(i+1) for i in range(len(exp_names))]
+    combodict = {
+        "_011": "Ebrach",
+        "_101": "Waldbrunn",
+        "_110": "Berchtesgaden"
+    }
+    globalmax = [12, 40, 14, 6, 2]
+    globalmin = [0, 0, 0, -10, -2]
+
+    # Custom color palette
+    palette = [0x072140, 0x3070B3, 0x8F81EA, 0xB55CA5, 0xFED702, 0xF7B11E, 0x9FBA36]
+    legend_palette = {str(i+1): f'#{palette[i]:06x}' for i in range(len(palette))}
+    palette = [f'#{color:06X}' for color in palette]
+    exp_palette = {exp: palette[i % len(palette)] for i, exp in enumerate(exp_names)}
+
+    figures = []
+
+    for combo in combos:
+        subset_df = master_df[master_df['combo'] == combo].copy()
+        
+        if subset_df.empty:
+            continue
+
+        # Create figure with subplots for each metric
+        fig, axes = plt.subplots(2, 3, figsize=(14, 7))
+        metric_labels = subset_df['Metrics'].unique()
+        metric_label_short = [label.split('(')[0].strip() for label in metric_labels]
+
+        for i, (metric, metric_short) in enumerate(zip(metric_labels, metric_label_short)):
+            if i >= 5:
+                continue  # Limit to first 5 metrics for 2x3 grid
+            ax = axes[i // 3, i % 3]
+            ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
+
+            metric_data = subset_df[subset_df['Metrics'] == metric].copy()
+
+            # Plot bars for Gen_Mean with Gen_Std as error bars
+            bars = ax.bar(
+                range(len(metric_data)),
+                metric_data['Gen_Mean'],
+                yerr=metric_data['Gen_Std'],
+                capsize=5,
+                color=[exp_palette[exp] for exp in metric_data['Experiment']]
+            )
+
+            # Add reference Allin_Mean values as crosses
+            for j, (bar, gen_mean, allin_mean) in enumerate(zip(bars, metric_data['Gen_Mean'], metric_data['Allin_Mean'])):
+                ax.scatter(bar.get_x() + bar.get_width() / 2, allin_mean, color='red', marker='x', s=100, linewidths=2, 
+                          label='Allin Reference' if j == 0 else "")
+
+            # Add value annotations
+            for bar, gen_mean, gen_std in zip(bars, metric_data['Gen_Mean'], metric_data['Gen_Std']):
+                label_ = f'{gen_mean:.2f}\n±{gen_std:.2f}'
+                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + gen_std * 1.05,
+                        label_, ha='center', va='bottom', fontsize=8)
+
+            ax.set_title(metric_short)
+            ax.set_xlabel("")
+            ax.set_ylabel(metric_short)
+            ax.set_xticks(range(len(metric_data)))
+            ax.set_xticklabels(short_names, rotation=0, ha='center')
+
+            # Set y limits
+            ymax = globalmax[i]
+            ymin = globalmin[i]
+            ax.set_ylim(ymin, ymax)
+
+        # Remove empty subplot if exists
+        if len(axes.flatten()) > 5:
+            fig.delaxes(axes.flatten()[5])
+
+        # Add legend
+        handles = [plt.Rectangle((0, 0), 1, 1, color=legend_palette[name]) for name in short_names]
+        handles.append(plt.Line2D([0], [0], color='red', marker='x', linestyle='', markersize=8, markeredgewidth=2, label='Allin Reference'))
+        fig.legend(handles, list(exp_names) + ['Allin Reference (Mean)'], title="Experiment",
+                   loc="center left", bbox_to_anchor=(0.7, 0.3), fontsize='large')
+
+        if "07_aux_task" in exp_names:
+            # Helper function for safe extraction
+            def get_metric_value(df, experiment, metric_name, allin=False):
+                row = df[(df["Experiment"] == experiment) & (df["Metrics"] == metric_name)]
+                if not row.empty:
+                    return row["Gen_Mean"].values[0] if not allin else row["Allin_Mean"].values[0]
+                else:
+                    return np.nan
+
+            def get_metric_std(df, experiment, metric_name, allin=False):
+                row = df[(df["Experiment"] == experiment) & (df["Metrics"] == metric_name)]
+                if not row.empty:
+                    return row["Gen_Std"].values[0] if not allin else row["Allin_Std"].values[0]
+                else:
+                    return np.nan
+
+            f1_fmask_mean = get_metric_value(subset_df, "07_aux_task", "F1 FMASK (Test)")
+            f1_fmask_std = get_metric_std(subset_df, "07_aux_task", "F1 FMASK (Test)")
+            f1_dlt_mean = get_metric_value(subset_df, "07_aux_task", "F1 DLT (Test)")
+            f1_dlt_std = get_metric_std(subset_df, "07_aux_task", "F1 DLT (Test)")
+            f1_fmask_allin = get_metric_value(subset_df, "07_aux_task", "F1 FMASK (Test)", allin=True)
+            f1_fmask_allin_std = get_metric_std(subset_df, "07_aux_task", "F1 FMASK (Test)", allin=True)
+            f1_dlt_allin = get_metric_value(subset_df, "07_aux_task", "F1 DLT (Test)", allin=True)
+            f1_dlt_allin_std = get_metric_std(subset_df, "07_aux_task", "F1 DLT (Test)", allin=True)
+
+            textstr = (
+                "Auxiliary Task Scores:\n"
+                f'F1 FMASK:  {f1_fmask_mean:.2f} ± {f1_fmask_std:.2f} All-In: {f1_fmask_allin:.2f} ± {f1_fmask_allin_std:.2f}\n'
+                f'F1 DLT:    {f1_dlt_mean:.2f} ± {f1_dlt_std:.2f} All-In: {f1_dlt_allin:.2f} ± {f1_dlt_allin_std:.2f}'
+            )
+            props = dict(boxstyle='round', facecolor='#9FBA36', alpha=0.5)
+            fig.text(0.71, 0.1, textstr, fontsize=12, bbox=props, verticalalignment='top', horizontalalignment='left')
+
+        plt.suptitle(title + (f' Train/Test Config: {combo} (Test Site: {combodict.get(combo, combo)})'), fontsize='x-large')
+        plt.tight_layout()
+        plt.subplots_adjust(top=0.9)
+
+        if savefig:
+            figures.append(fig)
+            path = f"../results/gen/{targetfolder}/gscore/"
+            print(path)
+            os.makedirs(path, exist_ok=True)
+            path_fig = path + "absolute_" + combo + ".png"
+            fig.savefig(path_fig, bbox_inches='tight')
+        
+        if printout:
+            plt.show()
+        else:
+            plt.close(fig)
 
     return figures
 
