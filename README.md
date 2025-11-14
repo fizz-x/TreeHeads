@@ -4,9 +4,7 @@ Tree Height Estimation and Analysis using Deep Sentinel data
 
 ## Architecture - Big Picture
 
-<p align="center" style="background: white;">
-    <img src="/graphics/01_Architecture_Approach.pdf" alt="Arch" style="background: white; padding: 10px;">
-</p>
+![Architecture Approach](/graphics/01_Architecture_Approach.pdf)
 
 ## Folder Structure
 
