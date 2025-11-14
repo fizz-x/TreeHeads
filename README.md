@@ -1,15 +1,17 @@
 # TreeHeads
-Tree-Height-Estimation-Across-Deep-Systems
+
+Tree Height Estimation and Analysis using Deep Sentinel data
 
 ## Architecture - Big Picture
-<p align="center" style="background: white;">
-    <img src="images/03_ARCHITECTURE_SKETCH.png" alt="Arch" style="background: white; padding: 10px;">
-</p>
 
+<p align="center" style="background: white;">
+    <img src="/graphics/01_Architecture_Approach.pdf" alt="Arch" style="background: white; padding: 10px;">
+</p>
 
 ## Folder Structure
 
 The following folder structure is needed for organizing the project:
+to be updated.
 
 ```
 TreeHeads/
@@ -31,8 +33,12 @@ TreeHeads/
 **Note:**  
 The `data/` and `models/` directories are intentionally excluded from version control (e.g., via `.gitignore`) to avoid pushing large or sensitive datasets and model files to the repository. Only code, documentation, and lightweight assets (such as images) should be committed to git.
 
-
 ## Sentinel 2 images with LiDAR Reference Data CHM Overlay
-S2 with ALS overlay: 
 
-![CHM_Site2](images/CHM_ALS2.png)
+S2 with ALS overlay:
+
+![CHM_Site2]("images/CHM_ALS2.png")
+
+## U-Net architecture
+
+![U-Net](/graphics/07_unet_custom.pdf)
