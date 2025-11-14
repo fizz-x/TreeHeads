@@ -5,6 +5,7 @@ zz_PlotNeuralNet/
 zz_Sandbox/
 graphics/archive
 src/archive/
+training/
 #stacked_multiband.tif
 # Ignore all .tif files
 *.tif
