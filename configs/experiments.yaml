@@ -101,6 +101,38 @@
       weight: 0.2
       activation: null
 
+08_aux_task:
+  spectral:
+    seasons: ["spring","summer","autumn"]
+    quantiles: ["Q25","Q50","Q75"]
+  aux_inputs: []
+  strategy: aux_task
+  outputs:
+    canopy_height:
+      target: "CHM_norm"
+      out_channels: 1
+      loss: huber
+      weight: 1.0
+      activation: null
+    tree_cover:
+      target: "FMASK"
+      out_channels: 1
+      loss: bce
+      weight: 0.3
+      activation: null  # BCEWithLogits applies sigmoid internally
+    leaf_type:
+      target: "DLT"
+      out_channels: 3
+      loss: crossentropy
+      weight: 0.2
+      activation: null
+    als_distribution:
+      loss: kl
+      weight: 0.5
+      out_channels: 0 # Not used for KL loss
+      num_bins: 50
+      min_val: -5.0
+      max_val: 5.0
 
 # 09_all_quantiles_fmask_dlt_dem:
 #   spectral:

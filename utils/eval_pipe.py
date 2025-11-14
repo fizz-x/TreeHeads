@@ -963,13 +963,14 @@ def plot_experiment_metrics_multiple_runs(df_result, title=None, printout=False)
         ax.set_xticks(range(len(exp_names)))
         ax.set_xticklabels(short_names, rotation=0, ha='center')
 
-        # # Set y limits
-        # ymax = (stats['mean'] + stats['std']).max()
-        # ymin = min((stats['mean'] - stats['std']).min(), 0)
-        # if ymin < 0: #Bias can be negative
-        #     ymax = np.nanmax(ymax, 1)
-        #     ymin = np.nanmin(ymin, -1)
-        # ax.set_ylim(ymin * 1.05, ymax * 1.2)
+        # Set y limits
+        ymax = (stats['mean'] + stats['std']).max()
+        ymin = 0 
+        if metric == "Bias [m] (Test)": #Bias can be negative
+            ymax = max(ymax, 1)
+            ymin = min(np.nanmin(stats['mean'] - stats['std']), -1)
+            #ymin = np.nanmin(ymin, -1)
+        ax.set_ylim(ymin * 1.05, ymax * 1.2)
 
     # Remove empty subplot if exists  
     if len(axes.flatten()) > len(metrics):
@@ -1035,10 +1036,10 @@ def save_big_df_stats(run_ids=None, big_df=None, target_folder="drafts"):
     path_text_csv = path + "results_text_table.csv"
     os.makedirs(os.path.dirname(path), exist_ok=True)
     for combo in combos:
-        path_plt = path + f"results_summary_{combo}.png"
+        path_plt = path + f"results_summary_{combo}.pdf"
         subset_df = big_df[big_df["combo"] == combo]
         os.makedirs(os.path.dirname(path_plt), exist_ok=True)
-        fig, stats = plot_experiment_metrics_multiple_runs(subset_df, title="Metrics by Experiment and Combo: " + combo, printout=False)
+        fig, stats = plot_experiment_metrics_multiple_runs(subset_df, title="Metrics by Experiment for Spatial Config: " + combo, printout=False)
         # Save the plot
         fig.savefig(path_plt, bbox_inches='tight')
         plt.close(fig)
@@ -1242,7 +1243,7 @@ def generalization_checker_sitespec(gen_path, allin_path):
 
     return genscore_df
 
-def plot_genscore(genscore_df, title="Generalization Score per Metric by Experiment and Train/Test Config", printout=False, targetfolder="drafts"):
+def plot_genscore(genscore_df, title="Generalization Score per Metric by Experiment and Train/Test Config", printout=False, savefig=False, targetfolder="drafts"):
     """
     Plot the Generalization Score for each experiment and metric.
 
@@ -1290,8 +1291,8 @@ def plot_genscore(genscore_df, title="Generalization Score per Metric by Experim
         ax.set_xlabel('Metric')
         ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
         ax.set_ylim(0, 100)
-        if subset_df['Score'].min() < 0:
-            ax.set_ylim(max(-100, subset_df['Score'].min()), 100)
+        # if subset_df['Score'].min() < 0:
+        #     ax.set_ylim(max(-100, subset_df['Score'].min()), 100)
         ax.legend(title='Experiment', bbox_to_anchor=(1.02, 0.5), loc='center left')
 
     plt.suptitle(title, fontsize='x-large')
@@ -1302,14 +1303,19 @@ def plot_genscore(genscore_df, title="Generalization Score per Metric by Experim
 
     if printout:
         plt.show()
-    else:
+    if savefig:
         path = f"../results/gen/{targetfolder}/gscore/"
 
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        path_fig = path + "genscore"+ ".png"
+        path_fig = path + "genscore"+ ".pdf"
         fig.savefig(path_fig, bbox_inches='tight')
-        plt.close(fig)
+        print("Generalization score plot saved to", path_fig)
+    if printout:
+        plt.show()
         return fig
+    else:
+        plt.close(fig)
+
 
 def plot_comparison_all_gen(master_df, title="Comparison of Metrics Across Experiments", printout=False, savefig =True, targetfolder = "drafts"):
     """
@@ -1454,7 +1460,7 @@ def plot_comparison_all_gen(master_df, title="Comparison of Metrics Across Exper
             path = f"../results/gen/{targetfolder}/gscore/"
             print(path)
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            path_fig = path + "absolute_" + combo + ".png"
+            path_fig = path + "absolute_" + combo + ".pdf"
             fig.savefig(path_fig, bbox_inches='tight')
         if printout:
             plt.show()
@@ -1601,7 +1607,7 @@ def plot_comparison_all_gen_sitespec(master_df, title="Comparison of Metrics Acr
             path = f"../results/gen/{targetfolder}/gscore/"
             print(path)
             os.makedirs(path, exist_ok=True)
-            path_fig = path + "absolute_" + combo + ".png"
+            path_fig = path + "absolute_" + combo + ".pdf"
             fig.savefig(path_fig, bbox_inches='tight')
         
         if printout:
