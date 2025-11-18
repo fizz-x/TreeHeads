@@ -1,6 +1,8 @@
 # TreeHeads
 
-**Tree Height Estimation from Sentinel-2 using Deep Learning**
+**Forest Canopy Height Estimation from Multi-Spectral Satellite Imagery**
+
+A Convolutional Learning Framework with Airborne Laser Scanning Supervision
 
 A Master's thesis project implementing a deep learning framework for estimating canopy height models (CHM) from Sentinel-2 satellite imagery, validated against airborne LiDAR (ALS) reference data across three forest study sites in Bavaria, Germany.
 
@@ -31,11 +33,19 @@ pip install -r requirements.txt
 - **Decoder**: 2 upsampling blocks with skip connections (back to 32×32)
 - **Output Heads**: Multi-task outputs for CHM (primary), forest mask (FMASK), and leaf type (DLT)
 
+<div align="center" style="width: 75%;">
+
 ![U-NET](graphics/07_unet_custom.png)
+
+</div>
 
 ### Experimental Design
 
+<div align="center" style="width: 75%;">
+
 ![Experimental Cube](graphics/08_experiment_cube.png)
+
+</div>
 
 The project evaluates **7 model configurations** across **3 spatial cross-validation folds** with **5 random repetitions**:
 
@@ -269,7 +279,7 @@ exp_name = "04_pixel_and_seasonal_comp"
 
 Example predictions on test sites:
 
-![CHM Predictions](graphics/results_example.png)
+![CHM Predictions](graphics/OVL_Ebrach_32607_5523.png)
 
 **Performance Summary (All-In Setup):**
 
@@ -285,11 +295,7 @@ See `results/{run_id}/metrics/results_summary.csv` for complete results across a
 
 **Three forest test sites in Bavaria, Germany:**
 
-| Site | Location | Forest Type | ALS Coverage |
-|---|---|---|---|
-| **Ebrach** | 49.97°N, 10.38°E | Mixed deciduous/conifer | 846×1241 m² |
-| **Waldbrunn** | 49.29°N, 8.90°E | Spruce/beech forest | Similar grid |
-| **Berchtesgaden** | 47.58°N, 12.98°E | Alpine conifer forest | Similar grid |
+![Site Locations](graphics/02_SiteLocations.png)
 
 ## Requirements
 
@@ -306,7 +312,7 @@ pip install -r requirements.txt
 
 - **Sentinel-2**: ESA Copernicus program
 - **Airborne LiDAR**: German state forest inventories
-- **FORCE**: Framework for Operational Radiometric Correction for Environmental monitoring ([Frantz et al., 2019](https://www.mdpi.com/2072-4292/11/9/1089))
+- **FORCE**: Framework for Operational Radiometric Correction for Environmental monitoring ([Frantz et al., 2019](https://www.mdpi.com/2072-4292/11/9/1124))
 
 ## Citation
 
@@ -314,9 +320,11 @@ If you use TreeHeads in your research, please cite:
 
 ```bibtex
 @mastersthesis{treeheads2025,
-  title={Tree Height Estimation from Sentinel-2 Using Deep Learning: 
-         A Multi-Site Evaluation with Spatial Cross-Validation},
-  author={Felix, ...},
+  title={Forest Canopy Height Estimation from
+        Multi-Spectral Satellite Imagery
+        A Convolutional Learning Framework with Airborne Laser
+        Scanning Supervision},
+  author={Felix, Schnippering},
   school={Technical University of Munich (TUM)},
   year={2025}
 }
@@ -328,7 +336,8 @@ This project is licensed under the MIT License—see `LICENSE` file for details.
 
 ## Contact
 
-For questions or issues, open a GitHub issue or contact the maintainers.
+For questions or issues, open a GitHub issue or hit me up.
+Felix.Schnippering@tum.de
 
 ---
 
