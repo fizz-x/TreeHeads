@@ -210,7 +210,7 @@ def crop_and_stack_vrts_to_als(
 
     print(f"\n✅ All seasonal VRTs processed and cropped.")
 
-def stack_site_vrts_to_multiband(S2_cropped_folder, override=False):
+def stack_site_vrts_to_multiband(S2_cropped_folder, override=False, extend_quantiles=False):
     """
     Stacks all cropped VRT bands for each season into a single multiband TIFF (all channels per band).
 
@@ -253,6 +253,19 @@ def stack_site_vrts_to_multiband(S2_cropped_folder, override=False):
                     channel_names = src.descriptions
 
         arrays = np.stack(arrays, axis=0)  # shape: (bands, channels, h, w)
+        if extend_quantiles:
+            # so far arrays is (bands, channels, height, width)
+            # if we want to extend quantiles, we duplicate each band 5 times with different scalings along the channel axis
+            # then we have instead of (bands, channels, height, width) -> (bands, channels*5, height, width)
+            arrays = np.repeat(arrays, 5, axis=1)
+            channel_names = list(channel_names) # also extend channel names *5 with _q0.01, _q0.25, _q0.5, _q0.75, _q0.99
+            new_channel_names = []
+            for c in channel_names:
+                new_channel_names.extend([
+                    f"{c}", f"{c}_a", f"{c}_b", f"{c}_c", f"{c}_d"
+                ])
+
+            channel_names = new_channel_names
 
         bands, channels, height, width = arrays.shape
         meta = rasterio.open(band_tifs[0]).meta.copy()
@@ -664,3 +677,70 @@ def normalize_chm(SITE1,SITE2,SITE3,NORMPARAMS,jointnorm = True):
                     }
                 print(f"✅ Saved normalized CHM for combo {combo} at {out_path}")
     print("✅ ALS normalization complete.")
+
+
+def get_pseudo_chm(sites, upper_left = (48.160723517168684, 11.55610203339669), lower_right = (48.11186967900207, 11.607257291939503), sitename = "draft", site_idx="04"):
+    """
+    Generate a pseudo-CHM from existing CHM data by taking the crs and resolution of an existing CHM file.
+    The generated pseudo-CHM will cover the area defined by the upper_left and lower_right coordinates (in WGS84 lat/lon).
+    All values will be set to zero.
+    Map will be stored as .tif file at target_path
+    """
+    from rasterio.transform import Affine
+    from rasterio.warp import transform_bounds
+    from rasterio.warp import transform
+    
+    ref_chm = rasterio.open(sites['SITE1']['CHM'])
+    ref_meta = ref_chm.meta.copy()
+    ref_transform = ref_chm.transform
+    ref_crs = ref_chm.crs
+    ref_shape = ref_chm.shape
+    ref_chm.close()
+
+    path = "../data/01_input_pipeline/" + sitename + "/" + site_idx + "_CHM.tif"
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    
+    # Transform WGS84 coordinates to the reference CRS
+    xs, ys = transform({"init": "EPSG:4326"}, ref_crs, [upper_left[1], lower_right[1]], [upper_left[0], lower_right[0]])
+    ul_proj = (xs[0], ys[0])
+    lr_proj = (xs[1], ys[1])
+    
+    # Extract pixel resolution from the reference transform
+    pixel_width = abs(ref_transform.a)
+    pixel_height = abs(ref_transform.e)
+    
+    # Calculate pixel coordinates for corners
+    ul_col = int((ul_proj[0] - ref_transform.c) / pixel_width)
+    ul_row = int((ref_transform.f - ul_proj[1]) / pixel_height)
+    lr_col = int((lr_proj[0] - ref_transform.c) / pixel_width)
+    lr_row = int((ref_transform.f - lr_proj[1]) / pixel_height)
+    
+    # Calculate dimensions
+    width = abs(lr_col - ul_col)
+    height = abs(lr_row - ul_row)
+    
+    # Validate dimensions
+    if width <= 0 or height <= 0:
+        raise ValueError(f"Invalid dimensions: width={width}, height={height}. Check coordinate bounds.")
+    
+    # Create data array
+    data = np.zeros((height, width), dtype=ref_meta['dtype'])
+    
+    # Calculate new transform based on upper left corner in projected coords
+    new_transform = Affine(
+        pixel_width, 0, ul_proj[0],
+        0, -pixel_height, ul_proj[1]
+    )
+    
+    # Update metadata
+    ref_meta.update({
+        'height': height,
+        'width': width,
+        'transform': new_transform,
+        'crs': ref_crs
+    })
+    
+    with rasterio.open(path, 'w', **ref_meta) as dst:
+        dst.write(data, 1)
+    
+    return path

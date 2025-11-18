@@ -10,7 +10,7 @@ src/archive/
 /results/
 *.pth
 *.npz
-*.png
+#*.png
 *cfg.json
 *logs.json
 10_Data/
