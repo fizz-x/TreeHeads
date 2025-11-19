@@ -10,6 +10,7 @@ src/archive/
 /results/
 *.pth
 *.npz
+*.html
 #*.png
 *cfg.json
 *logs.json
