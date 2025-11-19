@@ -1,0 +1,42 @@
+,0,1,2,3,4,5,6
+Experiment,01_baseline,02_pixel_composites,03_seasonal_composites,04_pixel_and_seasonal_comp,05_support_fmask_dlt,06_support_fmask_dlt_dem,07_aux_task
+MAE [m] (Val),4.26,4.31,3.81,3.81,3.81,4.03,3.83
+MAE [m] (Test),5.81,6.1,4.29,4.47,4.35,4.67,4.46
+nMAE [%] (Val),17.530000686645508,17.959999084472656,15.170000076293945,14.850000381469727,14.630000114440918,15.34000015258789,14.65999984741211
+nMAE [%] (Test),33.439998626708984,34.849998474121094,25.31999969482422,26.719999313354492,24.780000686645508,26.030000686645508,25.93000030517578
+RMSE [m] (Val),5.739999771118164,5.840000152587891,5.150000095367432,5.150000095367432,5.090000152587891,5.320000171661377,5.28000020980835
+RMSE [m] (Test),7.610000133514404,7.96999979019165,5.690000057220459,5.960000038146973,5.699999809265137,5.940000057220459,5.929999828338623
+Bias [m] (Val),-0.20999999344348907,-0.2800000011920929,-0.10999999940395355,-0.14000000059604645,0.019999999552965164,0.029999999329447746,-0.3799999952316284
+Bias [m] (Test),4.309999942779541,4.510000228881836,1.590000033378601,2.0,2.1500000953674316,1.3600000143051147,1.6100000143051147
+R2 [-] (Val),0.6600000262260437,0.6499999761581421,0.7799999713897705,0.75,0.7599999904632568,0.7300000190734863,0.6499999761581421
+R2 [-] (Test),0.550000011920929,0.5099999904632568,0.7200000286102295,0.6899999976158142,0.7200000286102295,0.6899999976158142,0.6899999976158142
+F1 FMASK (Test),,,,,,,0.9769
+F1 DLT (Test),,,,,,,0.3049
+"MAE [m] (Val, >5m)",4.27,4.35,3.91,3.9,3.85,3.97,3.86
+"MAE [m] (Test, >5m)",5.44,5.79,4.35,4.54,4.4,4.48,4.59
+"RMSE [m] (Val, >5m)",5.739999771118164,5.869999885559082,5.239999771118164,5.239999771118164,5.159999847412109,5.300000190734863,5.269999980926514
+"RMSE [m] (Test, >5m)",7.110000133514404,7.510000228881836,5.699999809265137,5.949999809265137,5.75,5.769999980926514,5.96999979019165
+"Bias [m] (Val, >5m)",-0.46000000834465027,-0.5,-0.3499999940395355,-0.33000001311302185,-0.2199999988079071,-0.3199999928474426,-0.5
+"Bias [m] (Test, >5m)",3.6600000858306885,3.9200000762939453,1.2599999904632568,1.7400000095367432,1.899999976158142,0.699999988079071,1.3799999952316284
+"R2 [-] (Val, >5m)",0.3799999952316284,0.3499999940395355,0.4699999988079071,0.4399999976158142,0.46000000834465027,0.4300000071525574,0.4099999964237213
+"R2 [-] (Test, >5m)",0.019999999552965164,-0.10000000149011612,0.3499999940395355,0.2800000011920929,0.33000001311302185,0.33000001311302185,0.2800000011920929
+spectral,"{'seasons': ['summer'], 'quantiles': ['Q50']}","{'seasons': ['summer'], 'quantiles': ['Q25', 'Q50', 'Q75']}","{'seasons': ['spring', 'summer', 'autumn'], 'quantiles': ['Q50']}","{'seasons': ['spring', 'summer', 'autumn'], 'quantiles': ['Q25', 'Q50', 'Q75']}","{'seasons': ['spring', 'summer', 'autumn'], 'quantiles': ['Q25', 'Q50', 'Q75']}","{'seasons': ['spring', 'summer', 'autumn'], 'quantiles': ['Q25', 'Q50', 'Q75']}","{'seasons': ['spring', 'summer', 'autumn'], 'quantiles': ['Q25', 'Q50', 'Q75']}"
+aux_inputs,['FMASK'],['FMASK'],['FMASK'],['FMASK'],"['FMASK', 'DLT']","['FMASK', 'DLT', 'DEM']",[]
+strategy,all_in_model,all_in_model,all_in_model,all_in_model,all_in_model,all_in_model,aux_task
+outputs,"{'canopy_height': {'target': 'CHM_norm', 'loss': 'huber'}}","{'canopy_height': {'target': 'CHM_norm', 'loss': 'huber'}}","{'canopy_height': {'target': 'CHM_norm', 'loss': 'huber'}}","{'canopy_height': {'target': 'CHM_norm', 'loss': 'huber'}}","{'canopy_height': {'target': 'CHM_norm', 'loss': 'huber'}}","{'canopy_height': {'target': 'CHM_norm', 'loss': 'huber'}}","{'canopy_height': {'target': 'CHM_norm', 'out_channels': 1, 'loss': 'huber', 'weight': 1.0, 'activation': None}, 'tree_cover': {'target': 'FMASK', 'out_channels': 1, 'loss': 'bce', 'weight': 0.3, 'activation': None}, 'leaf_type': {'target': 'DLT', 'out_channels': 3, 'loss': 'crossentropy', 'weight': 0.2, 'activation': None}}"
+exp,01_baseline,02_pixel_composites,03_seasonal_composites,04_pixel_and_seasonal_comp,05_support_fmask_dlt,06_support_fmask_dlt_dem,07_aux_task
+seed,50,50,50,50,50,50,50
+patch_size,32,32,32,32,32,32,32
+num_bands,15,15,15,15,15,15,15
+batch_size,128,128,128,128,128,128,128
+learning_rate,0.0008,0.0008,0.0008,0.0008,0.0008,0.0008,0.0008
+weight_decay,0.0002,0.0002,0.0002,0.0002,0.0002,0.0002,0.0002
+scheduler_type,ReduceLROnPlateau,ReduceLROnPlateau,ReduceLROnPlateau,ReduceLROnPlateau,ReduceLROnPlateau,ReduceLROnPlateau,ReduceLROnPlateau
+scheduler_patience,15,15,15,15,15,15,15
+scheduler_factor,0.5,0.5,0.5,0.5,0.5,0.5,0.5
+scheduler_min_lr,1e-06,1e-06,1e-06,1e-06,1e-06,1e-06,1e-06
+early_stopping_patience,75,75,75,75,75,75,75
+epochs,500,500,500,500,500,500,500
+huber_delta,1.35,1.35,1.35,1.35,1.35,1.35,1.35
+device,mps,mps,mps,mps,mps,mps,mps
+combo,_101,_101,_101,_101,_101,_101,_101
