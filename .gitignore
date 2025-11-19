@@ -8,7 +8,8 @@ graphics/archive
 src/archive/
 *.tif
 /results/
-*.pth
+*model.pth
+#*.pth
 *.npz
 *.html
 #*.png
