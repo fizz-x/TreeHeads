@@ -283,11 +283,7 @@ Example predictions on test sites:
 
 **Performance Summary (All-In Setup):**
 
-| Experiment | MAE [m] | RMSE [m] | R² [-] |
-|---|---|---|---|
-| 01_baseline | 2.85 | 3.92 | 0.92 |
-| 04_pixel_and_seasonal | 2.41 | 3.31 | 0.94 |
-| 07_aux_task | 2.38 | 3.28 | 0.94 |
+![Results](results_relevant/01_all_in/final/metrics/results_summary__allin.png)
 
 See `results/{run_id}/metrics/results_summary.csv` for complete results across all experiments.
 
